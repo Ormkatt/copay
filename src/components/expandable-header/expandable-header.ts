@@ -3,7 +3,7 @@ import {
   ContentChild,
   ElementRef,
   Input,
-  Renderer
+  Renderer2
 } from '@angular/core';
 import { Content } from 'ionic-angular';
 @Component({
@@ -52,7 +52,7 @@ export class ExpandableHeaderComponent {
    */
   headerHeight: number;
 
-  constructor(public element: ElementRef, public renderer: Renderer) {}
+  constructor(public element: ElementRef, public renderer: Renderer2) {}
 
   ngOnInit() {
     if (this.disableFade) {
@@ -67,65 +67,53 @@ export class ExpandableHeaderComponent {
     this.headerHeight = this.element.nativeElement.offsetHeight;
   }
 
-  handleDomWrite(scrollTop: number) {
+  private handleDomWrite(scrollTop: number) {
     const newHeaderHeight = this.getNewHeaderHeight(scrollTop);
     newHeaderHeight > 0 && this.applyTransforms(scrollTop, newHeaderHeight);
   }
 
-  applyTransforms(scrollTop: number, newHeaderHeight: number): void {
+  private applyTransforms(scrollTop: number, newHeaderHeight: number): void {
     const transformations = this.computeTransformations(
       scrollTop,
       newHeaderHeight
     );
-    this.transformPrimaryContent(transformations, true);
-    this.transformFooterContent(transformations);
+    this.transformContent(transformations);
   }
 
-  getNewHeaderHeight(scrollTop: number): number {
+  private getNewHeaderHeight(scrollTop: number): number {
     const newHeaderHeight = this.headerHeight - scrollTop;
     return newHeaderHeight < 0 ? 0 : newHeaderHeight;
   }
 
-  computeTransformations(scrollTop: number, newHeaderHeight: number): number[] {
+  private computeTransformations(
+    scrollTop: number,
+    newHeaderHeight: number
+  ): number[] {
     const opacity = this.getScaleValue(newHeaderHeight, this.fadeFactor);
     const scale = this.getScaleValue(newHeaderHeight, 0.5);
     const translateY = scrollTop > 0 ? scrollTop / 1.5 : 0;
     return [opacity, scale, translateY];
   }
 
-  getScaleValue(newHeaderHeight: number, exponent: number): number {
+  private getScaleValue(newHeaderHeight: number, exponent: number): number {
     return (
       Math.pow(newHeaderHeight, exponent) /
       Math.pow(this.headerHeight, exponent)
     );
   }
 
-  transformPrimaryContent(transformations: number[], is3d: boolean): void {
-    const [opacity, scale, translateY] = transformations;
-    const transform3d = `scale3d(${scale}, ${scale}, ${scale}) translateY(${translateY}px)`;
-    const transform2d = `scale(${scale}, ${scale}) translate(0, ${translateY}px)`;
-    const transformStr = is3d ? transform3d : transform2d;
-    this.renderer.setElementStyle(
+  private transformContent(transformations: number[]): void {
+    const [opacity] = transformations;
+    this.renderer.setStyle(
       this.primaryContent.element.nativeElement,
       'opacity',
       `${opacity}`
     );
-    this.primaryContent &&
-      this.renderer.setElementStyle(
-        this.primaryContent.element.nativeElement,
-        'transform',
-        transformStr
-      );
-  }
-
-  transformFooterContent(transformations: number[]): void {
-    const [opacity] = transformations;
-    this.footerContent &&
-      this.renderer.setElementStyle(
-        this.footerContent.element.nativeElement,
-        'opacity',
-        `${opacity}`
-      );
+    this.renderer.setStyle(
+      this.footerContent.element.nativeElement,
+      'opacity',
+      `${opacity}`
+    );
   }
 }
 

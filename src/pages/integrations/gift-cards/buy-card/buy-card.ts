@@ -1,9 +1,15 @@
 import { Component, NgZone } from '@angular/core';
 import { NavController, NavParams } from 'ionic-angular';
 import { ActionSheetProvider } from '../../../../providers';
+import {
+  getActivationFee,
+  hasPromotion,
+  hasVisibleDiscount
+} from '../../../../providers/gift-card/gift-card';
 import { CardConfig } from '../../../../providers/gift-card/gift-card.types';
 import { AmountPage } from '../../../send/amount/amount';
 import { ConfirmCardPurchasePage } from '../confirm-card-purchase/confirm-card-purchase';
+import { PhonePage } from '../phone/phone';
 
 @Component({
   selector: 'buy-card-page',
@@ -13,6 +19,8 @@ export class BuyCardPage {
   amount: number;
   cardConfig: CardConfig;
   printAlertShown = false;
+  hasVisibleDiscount: boolean = false;
+  hasPromotion: boolean = false;
 
   constructor(
     private actionSheetProvider: ActionSheetProvider,
@@ -23,6 +31,8 @@ export class BuyCardPage {
 
   async ngOnInit() {
     this.cardConfig = this.navParams.get('cardConfig');
+    this.hasVisibleDiscount = hasVisibleDiscount(this.cardConfig);
+    this.hasPromotion = hasPromotion(this.cardConfig);
   }
 
   ionViewWillEnter() {
@@ -43,10 +53,12 @@ export class BuyCardPage {
   enterAmount() {
     this.nav.push(AmountPage, {
       nextPage: 'ConfirmCardPurchasePage',
+      cardConfig: this.cardConfig,
       cardName: this.cardConfig.name,
       currency: this.cardConfig.currency,
       fixedUnit: true,
-      onlyIntegers: this.cardConfig.currency === 'JPY'
+      onlyIntegers:
+        this.cardConfig.currency === 'JPY' || this.cardConfig.integersOnly
     });
   }
 
@@ -64,15 +76,40 @@ export class BuyCardPage {
   continue() {
     const data = {
       amount: this.amount,
-      currency: this.cardConfig.currency,
-      cardName: this.cardConfig.name
+      cardConfig: this.cardConfig,
+      cardName: this.cardConfig.name,
+      currency: this.cardConfig.currency
     };
-    this.nav.push(ConfirmCardPurchasePage, data);
+    const page =
+      this.cardConfig.phoneRequired || this.cardConfig.mobilePaymentsSupported
+        ? PhonePage
+        : ConfirmCardPurchasePage;
+    this.nav.push(page, data);
+  }
+
+  checkForActivationFee() {
+    const activationFee = getActivationFee(this.amount, this.cardConfig);
+    return activationFee > 0
+      ? this.showActivationFeeSheet(activationFee)
+      : this.continue();
+  }
+
+  showActivationFeeSheet(fee: number) {
+    const sheet = this.actionSheetProvider.createInfoSheet(
+      'activation-fee-included',
+      {
+        currency: this.cardConfig.currency,
+        displayName: this.cardConfig.displayName,
+        fee
+      }
+    );
+    this.zone.run(() => sheet.present());
+    sheet.onDidDismiss(ok => ok && this.continue());
   }
 
   next() {
     this.cardConfig && this.cardConfig.supportedAmounts
-      ? this.continue()
+      ? this.checkForActivationFee()
       : this.enterAmount();
   }
 }

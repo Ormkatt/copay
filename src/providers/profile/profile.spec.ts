@@ -2,7 +2,7 @@ import { Events } from 'ionic-angular';
 import * as _ from 'lodash';
 import { Observable } from 'rxjs';
 
-import { BwcProvider, PersistenceProvider } from '..';
+import { BwcProvider, KeyProvider, PersistenceProvider } from '..';
 import { TestUtils } from '../../test';
 
 // Models
@@ -12,8 +12,8 @@ import { Profile } from '../../models/profile/profile.model';
 import { ActionSheetProvider } from '../action-sheet/action-sheet';
 import { ConfigProvider } from '../config/config';
 import { PlatformProvider } from '../platform/platform';
-import { PopupProvider } from '../popup/popup';
 import { ProfileProvider } from '../profile/profile';
+import { RateProvider } from '../rate/rate';
 import { ReplaceParametersProvider } from '../replace-parameters/replace-parameters';
 import { TxFormatProvider } from '../tx-format/tx-format';
 
@@ -25,14 +25,17 @@ describe('Profile Provider', () => {
   let profileProvider: ProfileProvider;
   let actionSheetProvider: ActionSheetProvider;
   let configProvider: ConfigProvider;
-  let popupProvider: PopupProvider;
+  let keyProvider: KeyProvider;
   let replaceParametersProvider: ReplaceParametersProvider;
   let platformProvider: PlatformProvider;
   let txFormatProvider: TxFormatProvider;
+  let persistenceProvider: PersistenceProvider;
+  let rateProvider: RateProvider;
 
   const walletMock = {
     id1: {
       id: 'id1',
+      coin: 'btc',
       copayerId: 'copayerId1',
       lastKnownBalance: '10.00 BTC',
       lastKnownBalanceUpdatedOn: null,
@@ -41,7 +44,10 @@ describe('Profile Provider', () => {
         network: 'livenet',
         n: 1,
         m: 1,
-        walletId: 'id1'
+        walletId: 'id1',
+        rootPath: "m/44'/0'/0'",
+        addressType: 'P2PKH',
+        keyId: 'keyId1'
       },
       cachedStatus: {
         availableBalanceSat: 1000000000 // 10 BTC
@@ -65,6 +71,7 @@ describe('Profile Provider', () => {
     },
     id2: {
       id: 'id2',
+      coin: 'btc',
       copayerId: 'copayerId2',
       lastKnownBalance: '5.00 BCH',
       lastKnownBalanceUpdatedOn: null,
@@ -73,7 +80,10 @@ describe('Profile Provider', () => {
         network: 'livenet',
         n: 1,
         m: 1,
-        walletId: 'id2'
+        walletId: 'id2',
+        rootPath: "m/44'/0'/0'",
+        addressType: 'P2PKH',
+        keyId: 'keyId2'
       },
       cachedStatus: {
         availableBalanceSat: 500000000 // 5 BCH
@@ -92,6 +102,7 @@ describe('Profile Provider', () => {
     },
     id3: {
       id: 'id3',
+      coin: 'btc',
       copayerId: 'copayerId3',
       lastKnownBalance: '1.50 BTC',
       lastKnownBalanceUpdatedOn: null,
@@ -100,7 +111,10 @@ describe('Profile Provider', () => {
         network: 'testnet',
         n: 2,
         m: 2,
-        walletId: 'id3'
+        walletId: 'id3',
+        rootPath: "m/44'/0'/0'",
+        addressType: 'P2PKH',
+        keyId: 'keyId1'
       },
       cachedStatus: {
         availableBalanceSat: 150000000 // 1.50 BTC
@@ -115,21 +129,30 @@ describe('Profile Provider', () => {
   };
 
   const walletToImport = {
-    walletId: 'id1',
-    xPrivKey: 'xPrivKey1',
-    xPrivKeyEncrypted: 'xPrivKeyEncrypted1',
-    mnemonicEncrypted: 'mnemonicEncrypted1',
-    n: 1
+    toObj: () => ({
+      walletId: 'id1',
+      xPrivKey: 'xPrivKey1',
+      xPrivKeyEncrypted: 'xPrivKeyEncrypted1',
+      mnemonicEncrypted: 'mnemonicEncrypted1',
+      n: 1
+    })
   };
 
   const walletClientMock = {
+    id: 'id1',
     copayerId: 'copayerId1',
+    n: 1,
+    m: 1,
     credentials: {
       coin: 'btc',
       network: 'livenet',
       n: 1,
       m: 1,
-      walletId: 'id1'
+      walletId: 'id1',
+      keyId: 'keyId',
+      rootPath: "m/44'/0'/0'",
+      addressType: 'P2PKH',
+      walletName: 'walletName'
     },
     canSign: () => {
       return true;
@@ -137,8 +160,11 @@ describe('Profile Provider', () => {
     encryptPrivateKey: () => {
       return true;
     },
-    export: (_opts?) => {
+    toString: (_opts?) => {
       return '{"walletId": "id1", "xPrivKey": "xPrivKey1", "xPrivKeyEncrypted": "xPrivKeyEncrypted1", "mnemonicEncrypted": "mnemonicEncrypted1", "n": 1}';
+    },
+    fromString: _key => {
+      return true;
     },
     import: (_str: string, _opts) => {
       return true;
@@ -162,9 +188,6 @@ describe('Profile Provider', () => {
       return _cb(null);
     },
     isPrivKeyEncrypted: () => {
-      return true;
-    },
-    isPrivKeyExternal: () => {
       return true;
     },
     removeAllListeners: () => {
@@ -202,12 +225,6 @@ describe('Profile Provider', () => {
     seedFromRandomWithMnemonic: _opts => {
       return true;
     },
-    seedFromMnemonic: (_mnemonic: string, _opts) => {
-      return true;
-    },
-    seedFromExtendedPrivateKey: (_extendedPrivateKey: string, _opts) => {
-      return true;
-    },
     seedFromExtendedPublicKey: (
       _extendedPublicKey: string,
       _externalSource: string,
@@ -237,12 +254,42 @@ describe('Profile Provider', () => {
     }
   };
 
+  let genericKey = {
+    id: 'keyId',
+    //    xPrivKey: 'xPrivKey',  // xxPrivKey is no longer available directly as for BWC 9.4
+    encrypt: () => {
+      return true;
+    },
+    createCredentials: (_, _opts) => {
+      return true;
+    },
+    isPrivKeyEncrypted: () => {
+      return false;
+    },
+    toObj: () => {
+      return keysArrayFromStorage[0];
+    }
+  };
+
+  let keysArrayFromStorage = [
+    {
+      id: 'keyId4',
+      xPrivKey: 'xPrivKey4'
+    },
+    {
+      id: 'keyId5',
+      xPrivKey: 'xPrivKey5'
+    },
+    genericKey
+  ];
+
   class BwcProviderMock {
     constructor() {}
     getErrors() {
       return {
-        NOT_AUTHORIZED: new Error('not authorized'),
-        ERROR: new Error('error')
+        NOT_AUTHORIZED: Error,
+        ERROR: Error,
+        COPAYER_REGISTERED: Error
       };
     }
     getBitcore() {
@@ -251,8 +298,83 @@ describe('Profile Provider', () => {
     getBitcoreCash() {
       return true;
     }
+    getBitcoreLtc() {
+      return true;
+    }
     getClient(_walletData, _opts) {
       return _.clone(walletClientMock);
+    }
+    getKey(_walletData, _opts) {
+      class Key2 {
+        id: string;
+
+        constructor() {
+          this.id = 'keyId';
+        }
+        match(_key1, _key2) {
+          return false;
+        }
+        encrypt() {
+          return true;
+        }
+        createCredentials(_, _opts) {
+          return true;
+        }
+        isPrivKeyEncrypted() {
+          return false;
+        }
+        toObj() {
+          return keysArrayFromStorage[0];
+        }
+      }
+      return Key2;
+    }
+
+    upgradeCredentialsV1(_data) {
+      const migrated = {
+        credentials: {
+          walletId: 'id1',
+          keyId: 'keyId1',
+          m: 1,
+          n: 1
+        },
+        key: {
+          mnemonic: 'mom mom mom mom mom mom mom mom mom mom mom mom',
+          xPrivKey: 'xPrivKey1',
+          isPrivKeyEncrypted: () => {
+            return false;
+          },
+          toObj: () => {
+            return false;
+          }
+        }
+      };
+      return migrated;
+    }
+    upgradeMultipleCredentialsV1(_oldCredentials) {
+      const migrated = {
+        credentials: [
+          {
+            walletId: 'id1',
+            keyId: 'keyId1',
+            m: 1,
+            n: 1
+          }
+        ],
+        keys: [
+          {
+            mnemonic: 'mom mom mom mom mom mom mom mom mom mom mom mom',
+            xPrivKey: 'xPrivKey1',
+            isPrivKeyEncrypted: () => {
+              return false;
+            },
+            toObj: () => {
+              return false;
+            }
+          }
+        ]
+      };
+      return migrated;
     }
     parseSecret(_secret) {
       let walletData;
@@ -275,90 +397,20 @@ describe('Profile Provider', () => {
     }
   }
 
-  class PersistenceProviderMock {
-    constructor() {}
-    setBackupFlag(_walletId) {
-      return Promise.resolve();
-    }
-    setWalletOrder() {
-      return Promise.resolve();
-    }
-    getWalletOrder() {
-      return Promise.resolve(1);
-    }
-    getHideBalanceFlag(_walletId) {
-      return Promise.resolve(true);
-    }
-    storeProfile(_profile) {
-      return Promise.resolve();
-    }
-    getAddressBook(_network: string) {
-      return Promise.resolve('{"name": "Gabriel Loco"}');
-    }
-    setAddressBook(_network: string, _strAddressBook: string) {
-      return Promise.resolve();
-    }
-    storeNewProfile(_profile) {
-      return Promise.resolve();
-    }
-    getCopayDisclaimerFlag() {
-      return Promise.resolve(true);
-    }
-    getCopayOnboardingFlag() {
-      return Promise.resolve(true);
-    }
-    getProfile() {
-      const profile = {
-        createdOn: Date.now(),
-        checkedUA: true
-      };
-      return Promise.resolve(profile);
-    }
-    removeAllWalletData(_walletId: string) {
-      return;
-    }
-    getLastKnownBalance(_id: string) {
-      let lastKnownBalance;
-      switch (_id) {
-        case 'id1':
-          lastKnownBalance = {
-            balance: '10.00 BTC',
-            updatedOn: 1558382053803
-          };
-          break;
-
-        case 'id2':
-          lastKnownBalance = {
-            balance: '5.00 BCH',
-            updatedOn: 1558382068661
-          };
-          break;
-        default:
-          lastKnownBalance = {
-            balance: '0.00 BTC',
-            updatedOn: Date.now()
-          };
-          break;
-      }
-      return Promise.resolve(lastKnownBalance);
-    }
-    setHideBalanceFlag(_walletId: string, _balanceHidden: boolean) {
-      return;
-    }
-  }
-
-  beforeEach(() => {
+  beforeEach(async () => {
     testBed = TestUtils.configureProviderTestingModule([
-      { provide: BwcProvider, useClass: BwcProviderMock },
-      { provide: PersistenceProvider, useClass: PersistenceProviderMock }
+      { provide: BwcProvider, useClass: BwcProviderMock }
     ]);
     profileProvider = testBed.get(ProfileProvider);
     actionSheetProvider = testBed.get(ActionSheetProvider);
     configProvider = testBed.get(ConfigProvider);
-    popupProvider = testBed.get(PopupProvider);
+    keyProvider = testBed.get(KeyProvider);
     replaceParametersProvider = testBed.get(ReplaceParametersProvider);
     platformProvider = testBed.get(PlatformProvider);
     txFormatProvider = testBed.get(TxFormatProvider);
+    rateProvider = testBed.get(RateProvider);
+    persistenceProvider = testBed.get(PersistenceProvider);
+    persistenceProvider.load();
 
     profileProvider.wallet = _.clone(walletMock);
     profileProvider.profile = Profile.create();
@@ -368,6 +420,8 @@ describe('Profile Provider', () => {
     spyOn(events, 'subscribe').and.returnValue({
       walletId: 'id1'
     });
+
+    await keyProvider.load();
   });
 
   describe('setWalletOrder', () => {
@@ -388,20 +442,39 @@ describe('Profile Provider', () => {
     });
   });
 
-  describe('getWalletOrder', () => {
-    it('should get the correct order from persistenceProvider if it is defined', () => {
-      const walletId: string = 'id1';
-      profileProvider.getWalletOrder(walletId).then(order => {
-        expect(order).toBe(1);
-      });
+  describe('setBackupGroupFlag', () => {
+    let keyId: string;
+    beforeEach(() => {
+      keyId = 'id3';
+      profileProvider.walletsGroups[keyId] = {};
+    });
+    it('should set needsBackup to false for a specified keyId if !migrating', () => {
+      profileProvider.setBackupGroupFlag(keyId);
+      expect(profileProvider.walletsGroups[keyId].needsBackup).toBeFalsy();
+    });
+
+    it('should not set needsBackup to false for a specified keyId if migrating', () => {
+      const migrating = true;
+      profileProvider.setBackupGroupFlag(keyId, null, migrating);
+      expect(profileProvider.walletsGroups[keyId].needsBackup).toBeUndefined();
+    });
+
+    it('should return if !keyId', () => {
+      keyId = undefined;
+      const setBackupGroupFlagSpy = spyOn(
+        persistenceProvider,
+        'setBackupGroupFlag'
+      );
+      profileProvider.setBackupGroupFlag(keyId);
+      expect(setBackupGroupFlagSpy).not.toHaveBeenCalled();
     });
   });
 
-  describe('setBackupFlag', () => {
+  describe('setWalletBackup', () => {
     it('should set needsBackup to false for a specified walletId', () => {
       const walletId: string = 'id3';
-      profileProvider.setBackupFlag(walletId);
-      expect(profileProvider.wallet.id3.needsBackup).toBeFalsy();
+      profileProvider.setWalletBackup(walletId);
+      expect(profileProvider.wallet[walletId].needsBackup).toBeFalsy();
     });
   });
 
@@ -412,6 +485,11 @@ describe('Profile Provider', () => {
         'setNotificationsInterval'
       );
       profileProvider.UPDATE_PERIOD_FAST = 5;
+      const opts = {
+        pushNotifications: { enabled: false }
+      };
+
+      spyOn(configProvider, 'get').and.returnValue(opts);
       profileProvider.setFastRefresh(profileProvider.wallet.id1);
       expect(setNotificationsIntervalSpy).toHaveBeenCalledWith(5);
     });
@@ -423,9 +501,13 @@ describe('Profile Provider', () => {
         profileProvider.wallet.id1,
         'setNotificationsInterval'
       );
-      profileProvider.UPDATE_PERIOD = 15;
+      profileProvider.EXTENDED_UPDATE_PERIOD = 3600;
+      const opts = {
+        pushNotifications: { enabled: false }
+      };
+      spyOn(configProvider, 'get').and.returnValue(opts);
       profileProvider.setSlowRefresh(profileProvider.wallet.id1);
-      expect(setNotificationsIntervalSpy).toHaveBeenCalledWith(15);
+      expect(setNotificationsIntervalSpy).toHaveBeenCalledWith(3600);
     });
   });
 
@@ -440,141 +522,34 @@ describe('Profile Provider', () => {
   });
 
   describe('storeProfileIfDirty', () => {
+    let storeProfileSpy;
+    beforeEach(() => {
+      storeProfileSpy = spyOn(persistenceProvider, 'storeProfile');
+    });
     it('should store the profile if it is dirty', () => {
       profileProvider.profile.dirty = true;
-      profileProvider.storeProfileIfDirty();
-      expect().nothing();
+      storeProfileSpy.and.returnValue(Promise.resolve());
+      profileProvider
+        .storeProfileIfDirty()
+        .then(() => {
+          expect(storeProfileSpy).toHaveBeenCalledWith(profileProvider.profile);
+        })
+        .catch(err => {
+          expect(err).not.toBeDefined();
+        });
     });
 
     it('should not store the profile if it is not dirty', () => {
       profileProvider.profile.dirty = false;
-      profileProvider.storeProfileIfDirty();
-      expect().nothing();
-    });
-  });
-
-  describe('importWallet', () => {
-    it('should return err if importWallet receive a corrupt string', () => {
-      const str: string = 'corruptedString';
-      const opts = {};
+      storeProfileSpy.and.returnValue(Promise.resolve());
       profileProvider
-        .importWallet(str, opts)
-        .then(walletClient => {
-          expect(walletClient).not.toBeDefined();
-        })
-        .catch(err => {
-          expect(err).toBeDefined();
-        });
-    });
-
-    it("should return err if JSON.parse is ok but str doesn't have property xPrivKey or xPrivKeyEncrypted", () => {
-      let str: string =
-        '{xPrivKeyEncrypted": "xPrivKeyEncrypted1", "mnemonicEncrypted": "mnemonicEncrypted1"}';
-      const opts = {};
-      profileProvider
-        .importWallet(str, opts)
-        .then(walletClient => {
-          expect(walletClient).not.toBeDefined();
-        })
-        .catch(err => {
-          expect(err).toBeDefined();
-        });
-
-      str =
-        '{"xPrivKey": "xPrivKey1", "mnemonicEncrypted": "mnemonicEncrypted1"}';
-      profileProvider
-        .importWallet(str, opts)
-        .then(walletClient => {
-          expect(walletClient).not.toBeDefined();
-        })
-        .catch(err => {
-          expect(err).toBeDefined();
-        });
-    });
-
-    it("should return err if JSON.parse is ok but str doesn't have property n", () => {
-      const str: string =
-        '{"xPrivKey": "xPrivKey1", "xPrivKeyEncrypted": "xPrivKeyEncrypted1", "mnemonicEncrypted": "mnemonicEncrypted1"}';
-      const opts = {};
-      profileProvider
-        .importWallet(str, opts)
-        .then(walletClient => {
-          expect(walletClient).not.toBeDefined();
-        })
-        .catch(err => {
-          expect(err).toBeDefined();
-        });
-    });
-
-    it('should return err if ionicPrompt from "askPassword" does not return a password', () => {
-      const str: string =
-        '{"xPrivKey": "xPrivKey1", "xPrivKeyEncrypted": "xPrivKeyEncrypted1", "mnemonicEncrypted": "mnemonicEncrypted1", "n": 1}';
-      const opts = {};
-
-      spyOn(popupProvider, 'ionicConfirm').and.returnValue(
-        Promise.resolve(false)
-      );
-
-      profileProvider
-        .importWallet(str, opts)
-        .then(walletClient => {
-          expect(walletClient).not.toBeDefined();
-        })
-        .catch(err => {
-          expect(err).toBeDefined();
-        });
-    });
-
-    it('should return the correct walletClient', () => {
-      const str: string =
-        '{"xPrivKey": "xPrivKey1", "xPrivKeyEncrypted": "xPrivKeyEncrypted1", "mnemonicEncrypted": "mnemonicEncrypted1", "n": 1}';
-      const opts = {};
-
-      spyOn(popupProvider, 'ionicConfirm').and.returnValue(
-        Promise.resolve(true)
-      );
-      spyOn(popupProvider, 'ionicPrompt').and.returnValue(
-        Promise.resolve(true)
-      );
-      spyOn(configProvider, 'get').and.returnValue({ bwsFor: 'id1' });
-
-      profileProvider
-        .importWallet(str, opts)
-        .then(walletClient => {
-          expect(walletClient).toBeDefined();
-          expect(walletClient.credentials.walletId).toEqual('id1');
+        .storeProfileIfDirty()
+        .then(() => {
+          expect(storeProfileSpy).not.toHaveBeenCalled();
         })
         .catch(err => {
           expect(err).not.toBeDefined();
         });
-    });
-  });
-
-  describe('importExtendedPrivateKey', () => {
-    it('should publish Local/WalletListChange event if importExtendedPrivateKey is executed correctly', async () => {
-      const xPrivKey: string = 'xPrivKey1';
-      const opts = {};
-
-      spyOn(popupProvider, 'ionicConfirm').and.returnValue(
-        Promise.resolve(true)
-      );
-      spyOn(popupProvider, 'ionicPrompt').and.returnValue(
-        Promise.resolve(true)
-      );
-      spyOn(configProvider, 'get').and.returnValue({ bwsFor: 'id1' });
-      spyOn(profileProvider.profile, 'hasWallet').and.returnValue(false);
-
-      await profileProvider
-        .importExtendedPrivateKey(xPrivKey, opts)
-        .then(wallet => {
-          expect(wallet).toBeDefined();
-          expect(wallet.id).toEqual('id1');
-        })
-        .catch(err => {
-          expect(err).not.toBeDefined();
-        });
-
-      expect(eventsPublishSpy).toHaveBeenCalledWith('Local/WalletListChange');
     });
   });
 
@@ -694,89 +669,9 @@ describe('Profile Provider', () => {
     });
   });
 
-  describe('importSingleSeedMnemonic', () => {
-    it('should publish Local/WalletListChange event if importSingleSeedMnemonic is executed correctly', async () => {
-      const words: string = 'mom mom mom mom mom mom mom mom mom mom mom mom';
-      const opts = {};
-
-      spyOn(popupProvider, 'ionicConfirm').and.returnValue(
-        Promise.resolve(true)
-      );
-      spyOn(popupProvider, 'ionicPrompt').and.returnValue(
-        Promise.resolve(true)
-      );
-      spyOn(configProvider, 'get').and.returnValue({ bwsFor: 'id1' });
-      spyOn(profileProvider.profile, 'hasWallet').and.returnValue(false);
-
-      await profileProvider
-        .importSingleSeedMnemonic(words, opts)
-        .then(wallet => {
-          expect(wallet).toBeDefined();
-          expect(wallet.id).toEqual('id1');
-        })
-        .catch(err => {
-          expect(err).not.toBeDefined();
-        });
-
-      expect(eventsPublishSpy).toHaveBeenCalledWith('Local/WalletListChange');
-    });
-  });
-
-  describe('importMnemonic', () => {
-    it('should return the wallet if importMnemonic is executed correctly', () => {
-      const words: string = 'mom mom mom mom mom mom mom mom mom mom mom mom';
-      const opts = {};
-      const ignoreError: boolean = true;
-
-      profileProvider
-        .importMnemonic(words, opts, ignoreError)
-        .then(wallet => {
-          expect(wallet).toBeDefined();
-          expect(wallet.credentials.walletId).toEqual('id1');
-        })
-        .catch(err => {
-          expect(err).not.toBeDefined();
-        });
-    });
-  });
-
-  describe('importExtendedPublicKey', () => {
-    it('should publish Local/WalletListChange event if importExtendedPublicKey is executed correctly', async () => {
-      const opts = {
-        extendedPublicKey: 'extendedPublicKey1',
-        externalSource: 'externalSource1',
-        entropySource: 'entropySource1'
-      };
-
-      spyOn(popupProvider, 'ionicConfirm').and.returnValue(
-        Promise.resolve(true)
-      );
-      spyOn(popupProvider, 'ionicPrompt').and.returnValue(
-        Promise.resolve(true)
-      );
-      spyOn(configProvider, 'get').and.returnValue({ bwsFor: 'id1' });
-      spyOn(profileProvider.profile, 'hasWallet').and.returnValue(false);
-
-      await profileProvider
-        .importExtendedPublicKey(opts)
-        .then(wallet => {
-          expect(wallet).toBeDefined();
-          expect(wallet.credentials.walletId).toEqual('id1');
-        })
-        .catch(err => {
-          expect(err).not.toBeDefined();
-        });
-
-      expect(eventsPublishSpy).toHaveBeenCalledWith('Local/WalletListChange');
-    });
-  });
-
   describe('createProfile', () => {
     it('should call storeNewProfile function with the new profile', () => {
-      const storeNewProfileSpy = spyOn(
-        PersistenceProviderMock.prototype,
-        'storeNewProfile'
-      );
+      const storeNewProfileSpy = spyOn(persistenceProvider, 'storeNewProfile');
 
       profileProvider.createProfile();
 
@@ -784,23 +679,93 @@ describe('Profile Provider', () => {
     });
   });
 
-  describe('bindProfile', () => {
-    it('should work without errors if onboardingCompleted and disclaimerAccepted', async () => {
-      const profile = {
-        credentials: [
-          profileProvider.wallet.id1.credentials,
-          profileProvider.wallet.id2.credentials
-        ]
+  describe('loadAndBindProfile', () => {
+    let getProfileSpy, storeProfileSpy;
+    beforeEach(() => {
+      getProfileSpy = spyOn(persistenceProvider, 'getProfile');
+      storeProfileSpy = spyOn(
+        persistenceProvider,
+        'storeProfile'
+      ).and.returnValue(Promise.resolve());
+      spyOn(keyProvider, 'addKeys').and.returnValue(Promise.resolve());
+
+      profileProvider.profile.credentials = [
+        profileProvider.wallet.id1.credentials,
+        profileProvider.wallet.id2.credentials
+      ];
+
+      profileProvider.profile.dirty = true;
+      const opts = {
+        pushNotifications: { enabled: true },
+        bwsFor: 'id1'
       };
 
-      spyOn(configProvider, 'get').and.returnValue({ bwsFor: 'id1' });
-      profileProvider.profile.onboardingCompleted = true;
+      spyOn(configProvider, 'get').and.returnValue(opts);
       profileProvider.profile.disclaimerAccepted = true;
+    });
+    it('should get and bind profile with migrated credentials and keys', () => {
+      getProfileSpy.and.returnValue(Promise.resolve(profileProvider.profile));
 
-      await profileProvider
-        .bindProfile(profile)
-        .then(() => {
-          expect().nothing();
+      profileProvider
+        .loadAndBindProfile()
+        .then(onbordingState => {
+          expect(onbordingState).toBeUndefined();
+          expect(storeProfileSpy).toHaveBeenCalledWith(profileProvider.profile);
+        })
+        .catch(err => {
+          expect(err).not.toBeDefined();
+        });
+    });
+
+    it('should get and bind profile with migrated credentials', () => {
+      BwcProviderMock.prototype.upgradeMultipleCredentialsV1 = (
+        _oldCredentials: any
+      ) => {
+        const migrated = {
+          credentials: [
+            {
+              walletId: 'id1',
+              keyId: 'keyId1',
+              m: 1,
+              n: 1
+            }
+          ],
+          keys: []
+        };
+        return migrated;
+      };
+
+      getProfileSpy.and.returnValue(Promise.resolve(profileProvider.profile));
+
+      profileProvider
+        .loadAndBindProfile()
+        .then(onbordingState => {
+          expect(onbordingState).toBeUndefined();
+          expect(storeProfileSpy).toHaveBeenCalledWith(profileProvider.profile);
+        })
+        .catch(err => {
+          expect(err).not.toBeDefined();
+        });
+    });
+
+    it('should get, bind and return profile without migrated credentials or keys', () => {
+      BwcProviderMock.prototype.upgradeMultipleCredentialsV1 = (
+        _oldCredentials: any
+      ) => {
+        const migrated = {
+          credentials: [],
+          keys: []
+        };
+        return migrated;
+      };
+
+      getProfileSpy.and.returnValue(Promise.resolve(profileProvider.profile));
+
+      profileProvider
+        .loadAndBindProfile()
+        .then(onbordingState => {
+          expect(onbordingState).toBeUndefined();
+          expect(storeProfileSpy).toHaveBeenCalledWith(profileProvider.profile);
         })
         .catch(err => {
           expect(err).not.toBeDefined();
@@ -822,8 +787,12 @@ describe('Profile Provider', () => {
         });
     });
 
-    it('should set disclaimerAccepted with true', () => {
+    it('should set disclaimerAccepted with true if OLD flag is true', () => {
       profileProvider.profile.disclaimerAccepted = false;
+
+      spyOn(persistenceProvider, 'getCopayDisclaimerFlag').and.returnValue(
+        Promise.resolve(true)
+      );
 
       profileProvider
         .isDisclaimerAccepted()
@@ -834,72 +803,36 @@ describe('Profile Provider', () => {
           expect(err).not.toBeDefined();
         });
     });
-  });
 
-  describe('isOnboardingCompleted', () => {
-    it('should return promise resolve if onboardingCompleted is true', () => {
-      profileProvider.profile.onboardingCompleted = true;
+    it('should not set disclaimerAccepted if OLD flag is not present', () => {
+      profileProvider.profile.disclaimerAccepted = false;
 
-      profileProvider
-        .isOnboardingCompleted()
-        .then(() => {
-          expect().nothing();
-        })
-        .catch(err => {
-          expect(err).not.toBeDefined();
-        });
-    });
-
-    it('should set onboardingCompleted with true', () => {
-      profileProvider.profile.onboardingCompleted = false;
-
-      profileProvider
-        .isOnboardingCompleted()
-        .then(() => {
-          expect(profileProvider.profile.onboardingCompleted).toBeTruthy();
-        })
-        .catch(err => {
-          expect(err).not.toBeDefined();
-        });
-    });
-  });
-
-  describe('loadAndBindProfile', () => {
-    it('should get, bind and return profile', () => {
-      const bindProfileSpy = spyOn(
-        profileProvider,
-        'bindProfile'
-      ).and.returnValue(Promise.resolve());
-
-      profileProvider
-        .loadAndBindProfile()
-        .then(profile => {
-          expect(profile).toBeDefined();
-          expect(bindProfileSpy).toHaveBeenCalledWith(profile);
-        })
-        .catch(err => {
-          expect(err).not.toBeDefined();
-        });
-    });
-
-    it('should return error if bindProfile fails', () => {
-      spyOn(profileProvider, 'bindProfile').and.returnValue(
-        Promise.reject('Error')
+      spyOn(persistenceProvider, 'getCopayDisclaimerFlag').and.returnValue(
+        Promise.resolve(null)
       );
 
-      profileProvider
-        .loadAndBindProfile()
-        .then(profile => {
-          expect(profile).not.toBeDefined();
-        })
-        .catch(err => {
-          expect(err).toBeDefined();
-        });
+      profileProvider.isDisclaimerAccepted().catch(() => {
+        expect(profileProvider.profile.disclaimerAccepted).toBeFalsy();
+      });
     });
   });
 
   describe('createWallet', () => {
-    it('should create wallet using seedFromMnemonic', () => {
+    let handleEncryptedWalletSpy;
+    beforeEach(() => {
+      handleEncryptedWalletSpy = spyOn(keyProvider, 'handleEncryptedWallet');
+      handleEncryptedWalletSpy.and.returnValue(Promise.resolve());
+      spyOn(keyProvider, 'addKey').and.returnValue(Promise.resolve());
+      configProvider.set({ bwsFor: 'id1' });
+      spyOn(
+        actionSheetProvider,
+        'createEncryptPasswordComponent'
+      ).and.returnValue({
+        present: () => {},
+        dismiss: () => {}
+      });
+    });
+    it('should create wallet using seed from mnemonic', () => {
       const opts = {
         name: 'walletName',
         m: 1,
@@ -923,7 +856,7 @@ describe('Profile Provider', () => {
         });
     });
 
-    it('should create wallet using seedFromExtendedPrivateKey', () => {
+    it('should create wallet using seed from extendedPrivateKey', () => {
       const opts = {
         name: 'walletName',
         m: 1,
@@ -947,7 +880,7 @@ describe('Profile Provider', () => {
         });
     });
 
-    it('should create wallet using seedFromExtendedPublicKey', () => {
+    it('should create wallet using seed from extendedPublicKey', () => {
       const opts = {
         name: 'walletName',
         m: 1,
@@ -971,7 +904,7 @@ describe('Profile Provider', () => {
         });
     });
 
-    it('should create wallet using FromRandomWithMnemonic', () => {
+    it('should create wallet using from random mnemonic', () => {
       const opts = {
         name: 'walletName',
         m: 1,
@@ -997,17 +930,19 @@ describe('Profile Provider', () => {
 
   describe('joinWallet', () => {
     beforeEach(() => {
-      spyOn(popupProvider, 'ionicConfirm').and.returnValue(
+      spyOn<any>(profileProvider, 'askToEncryptKey').and.returnValue(
         Promise.resolve(true)
       );
-      spyOn(popupProvider, 'ionicPrompt').and.returnValue(
-        Promise.resolve(true)
-      );
-      spyOn(configProvider, 'get').and.returnValue({ bwsFor: 'id1' });
+      const opts = {
+        pushNotifications: { enabled: true },
+        bwsFor: 'id1'
+      };
+
+      spyOn(configProvider, 'get').and.returnValue(opts);
       spyOn(profileProvider.profile, 'hasWallet').and.returnValue(false);
     });
 
-    it('should join wallet and publish "Local/WalletListChange" event', async () => {
+    it('should join wallet and publish "Local/WalletUpdate" event', async () => {
       const opts = {
         secret: 'secret5',
         coin: 'btc',
@@ -1022,7 +957,9 @@ describe('Profile Provider', () => {
         .catch(err => {
           expect(err).not.toBeDefined();
         });
-      expect(eventsPublishSpy).toHaveBeenCalledWith('Local/WalletListChange');
+      expect(eventsPublishSpy).toHaveBeenCalledWith('Local/WalletUpdate', {
+        walletId: 'id1'
+      });
     });
 
     it('should fails to join wallet if you already joined that wallet', async () => {
@@ -1105,69 +1042,6 @@ describe('Profile Provider', () => {
         .catch(err => {
           expect(err).not.toBeDefined();
         });
-
-      expect(eventsPublishSpy).toHaveBeenCalledWith('Local/WalletListChange');
-    });
-  });
-
-  describe('createDefaultWallet', () => {
-    it('should create a default wallet calling createNewSeedWallet with default opts', async () => {
-      const createNewSeedWalletSpy = spyOn(
-        profileProvider,
-        'createNewSeedWallet'
-      ).and.returnValue(Promise.resolve());
-
-      await profileProvider.createDefaultWallet().catch(err => {
-        expect(err).not.toBeDefined();
-      });
-
-      expect(createNewSeedWalletSpy).toHaveBeenCalledWith({
-        m: 1,
-        n: 1,
-        networkName: 'livenet',
-        coin: 'btc'
-      });
-    });
-  });
-
-  describe('createNewSeedWallet', () => {
-    beforeEach(() => {
-      spyOn(popupProvider, 'ionicConfirm').and.returnValue(
-        Promise.resolve(true)
-      );
-      spyOn(popupProvider, 'ionicPrompt').and.returnValue(
-        Promise.resolve(true)
-      );
-      spyOn(configProvider, 'get').and.returnValue({ bwsFor: 'id1' });
-      spyOn(profileProvider.profile, 'hasWallet').and.returnValue(false);
-    });
-    it('should create a new seed wallet with the provided opts', async () => {
-      const opts = {
-        name: 'walletName',
-        m: 1,
-        n: 1,
-        myName: null,
-        networkName: 'livenet',
-        bwsurl: 'https://bws.bitpay.com/bws/api',
-        singleAddress: false,
-        coin: 'btc'
-      };
-      const createWalletSpy = spyOn(
-        profileProvider,
-        'createWallet'
-      ).and.returnValue(Promise.resolve(_.clone(walletClientMock)));
-
-      await profileProvider
-        .createNewSeedWallet(opts)
-        .then(wallet => {
-          expect(wallet).toBeDefined();
-        })
-        .catch(err => {
-          expect(err).not.toBeDefined();
-        });
-
-      expect(createWalletSpy).toHaveBeenCalledWith(opts);
-      expect(eventsPublishSpy).toHaveBeenCalledWith('Local/WalletListChange');
     });
   });
 
@@ -1184,30 +1058,65 @@ describe('Profile Provider', () => {
     });
   });
 
-  describe('setOnboardingCompleted', () => {
-    it('should set onboardingCompleted with true', () => {
-      profileProvider
-        .setOnboardingCompleted()
-        .then(() => {
-          expect(profileProvider.profile.onboardingCompleted).toBeTruthy();
-        })
-        .catch(err => {
-          expect(err).not.toBeDefined();
-        });
-    });
-  });
-
   describe('setLastKnownBalance', () => {
+    beforeEach(() => {
+      spyOn(persistenceProvider, 'getLastKnownBalance').and.callFake(
+        (_id: string) => {
+          let lastKnownBalance;
+          switch (_id) {
+            case 'id1':
+              lastKnownBalance = {
+                balance: '10.00 BTC',
+                updatedOn: 1558382053803
+              };
+              break;
+
+            case 'id2':
+              lastKnownBalance = {
+                balance: '5.00 BCH',
+                updatedOn: 1558382068661
+              };
+              break;
+            default:
+              lastKnownBalance = {
+                balance: '0.00 BTC',
+                updatedOn: Date.now()
+              };
+              break;
+          }
+          return Promise.resolve(lastKnownBalance);
+        }
+      );
+    });
     it('should set the last known balance', () => {
       profileProvider.setLastKnownBalance();
-      expect(profileProvider.wallet.id1.lastKnownBalance).toBeDefined();
+      expect(profileProvider.wallet.id1.lastKnownBalance).toEqual('10.00 BTC');
+      expect(profileProvider.wallet.id2.lastKnownBalance).toEqual('5.00 BCH');
     });
   });
 
   describe('getWallets', () => {
+    beforeEach(() => {
+      profileProvider.walletsGroups = {
+        keyId1: {
+          name: 'name1',
+          needsBackup: true,
+          order: 1
+        },
+        keyId2: {
+          name: 'name2',
+          needsBackup: true,
+          order: 2
+        }
+      };
+    });
     it('should get successfully all wallets when no opts', () => {
       const wallets = profileProvider.getWallets();
-      expect(wallets).toEqual(_.values(profileProvider.wallet));
+      expect(wallets).toEqual([
+        profileProvider.wallet.id1,
+        profileProvider.wallet.id3,
+        profileProvider.wallet.id2
+      ]);
     });
 
     it('should get successfully all wallets when opts are provided', () => {
@@ -1222,6 +1131,27 @@ describe('Profile Provider', () => {
       };
       const wallets = profileProvider.getWallets(opts);
       expect(wallets).toEqual([profileProvider.wallet.id3]);
+    });
+
+    it('should get all the wallets that match the array of coins', () => {
+      const opts = {
+        coin: ['btc', 'bch'],
+        network: 'livenet'
+      };
+      const wallets = profileProvider.getWallets(opts);
+      expect(wallets).toEqual([
+        profileProvider.wallet.id1,
+        profileProvider.wallet.id2
+      ]);
+    });
+
+    it('should get all the backed up wallets', () => {
+      walletMock['id3'].needsBackup = true;
+      const opts = {
+        backedUp: true
+      };
+      const wallets = profileProvider.getWallets(opts);
+      expect(wallets).toEqual([profileProvider.wallet.id1]);
     });
 
     it('should not return any wallet when there is no wallets validating provided opts', () => {
@@ -1248,6 +1178,19 @@ describe('Profile Provider', () => {
 
   describe('getTxps', () => {
     it('should get all txps', () => {
+      profileProvider.walletsGroups = {
+        keyId1: {
+          name: 'name1',
+          needsBackup: true,
+          order: 1
+        },
+        keyId2: {
+          name: 'name2',
+          needsBackup: true,
+          order: 2
+        }
+      };
+
       const opts = {};
       profileProvider
         .getTxps(opts)
@@ -1275,7 +1218,6 @@ describe('Profile Provider', () => {
   });
 
   describe('Desktop notifications', () => {
-    let str: string;
     let opts;
 
     beforeEach(() => {
@@ -1289,16 +1231,11 @@ describe('Profile Provider', () => {
         };
       };
 
-      spyOn(popupProvider, 'ionicConfirm').and.returnValue(
-        Promise.resolve(true)
-      );
-      spyOn(popupProvider, 'ionicPrompt').and.returnValue(
-        Promise.resolve(true)
-      );
-
       spyOn(configProvider, 'get').and.returnValue({
         bwsFor: 'id1',
-        desktopNotificationsEnabled: true
+        desktopNotifications: { enabled: true },
+        emailNotifications: { email: 'test@test.com' },
+        pushNotifications: { enabled: false }
       });
 
       spyOn(actionSheetProvider, 'createInfoSheet').and.returnValue({
@@ -1310,6 +1247,10 @@ describe('Profile Provider', () => {
         }
       });
 
+      spyOn<any>(profileProvider, 'askToEncryptKey').and.returnValue(
+        Promise.resolve(true)
+      );
+
       spyOn(Observable, 'timer').and.returnValue({
         toPromise: () => {
           return true;
@@ -1317,9 +1258,18 @@ describe('Profile Provider', () => {
       });
 
       platformProvider.isElectron = true; // To specifies that is desktop
-      str =
-        '{"xPrivKey": "xPrivKey1", "xPrivKeyEncrypted": "xPrivKeyEncrypted1", "mnemonicEncrypted": "mnemonicEncrypted1", "n": 1}';
-      opts = {};
+
+      opts = {
+        name: 'walletName',
+        m: 1,
+        n: 1,
+        myName: null,
+        networkName: 'livenet',
+        bwsurl: 'https://bws.bitpay.com/bws/api',
+        singleAddress: false,
+        coin: 'btc',
+        mnemonic: 'mom mom mom mom mom mom mom mom mom mom mom mom'
+      };
     });
 
     it('should call showDesktopNotifications and go through NewCopayer path for MacOS', async () => {
@@ -1333,8 +1283,8 @@ describe('Profile Provider', () => {
         'replace'
       ).and.returnValue('body1');
 
-      // Using importWallet just to test showDesktopNotifications private function
-      await profileProvider.importWallet(str, opts).catch(err => {
+      // Using createWallet just to test showDesktopNotifications private function
+      await profileProvider.createWallet(opts).catch(err => {
         expect(err).not.toBeDefined();
       });
 
@@ -1352,8 +1302,8 @@ describe('Profile Provider', () => {
         'replace'
       ).and.returnValue('body1');
 
-      // Using importWallet just to test showDesktopNotifications private function
-      await profileProvider.importWallet(str, opts).catch(err => {
+      // Using createWallet just to test showDesktopNotifications private function
+      await profileProvider.createWallet(opts).catch(err => {
         expect(err).not.toBeDefined();
       });
 
@@ -1367,8 +1317,8 @@ describe('Profile Provider', () => {
         'replace'
       ).and.returnValue('body1');
 
-      // Using importWallet just to test showDesktopNotifications private function
-      await profileProvider.importWallet(str, opts).catch(err => {
+      // Using createWallet just to test showDesktopNotifications private function
+      await profileProvider.createWallet(opts).catch(err => {
         expect(err).not.toBeDefined();
       });
 
@@ -1391,8 +1341,8 @@ describe('Profile Provider', () => {
         'replace'
       ).and.returnValue('body1');
 
-      // Using importWallet just to test showDesktopNotifications private function
-      await profileProvider.importWallet(str, opts).catch(err => {
+      // Using createWallet just to test showDesktopNotifications private function
+      await profileProvider.createWallet(opts).catch(err => {
         expect(err).not.toBeDefined();
       });
 
@@ -1408,8 +1358,8 @@ describe('Profile Provider', () => {
 
       spyOn(txFormatProvider, 'formatAmountStr').and.returnValue('5.00 BTC');
 
-      // Using importWallet just to test showDesktopNotifications private function
-      await profileProvider.importWallet(str, opts).catch(err => {
+      // Using createWallet just to test showDesktopNotifications private function
+      await profileProvider.createWallet(opts).catch(err => {
         expect(err).not.toBeDefined();
       });
 
@@ -1423,8 +1373,8 @@ describe('Profile Provider', () => {
         'replace'
       ).and.returnValue('body1');
 
-      // Using importWallet just to test showDesktopNotifications private function
-      await profileProvider.importWallet(str, opts).catch(err => {
+      // Using createWallet just to test showDesktopNotifications private function
+      await profileProvider.createWallet(opts).catch(err => {
         expect(err).not.toBeDefined();
       });
 
@@ -1438,12 +1388,48 @@ describe('Profile Provider', () => {
         'replace'
       ).and.returnValue('body1');
 
-      // Using importWallet just to test showDesktopNotifications private function
-      await profileProvider.importWallet(str, opts).catch(err => {
+      // Using createWallet just to test showDesktopNotifications private function
+      await profileProvider.createWallet(opts).catch(err => {
         expect(err).not.toBeDefined();
       });
 
       expect(replaceSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('hasWalletWithFunds', () => {
+    beforeAll(async () => {
+      spyOn(RateProvider.prototype, 'getCoin').and.callFake(
+        () => new Promise(resolve => resolve([{ code: 'BOB', rate: 123 }]))
+      );
+    });
+
+    beforeEach(() => {
+      profileProvider.wallet = _.clone(walletMock);
+    });
+
+    it('should return true with multiple wallets', () => {
+      rateProvider.updateRates().then(() => {
+        // The all wallets have more than 10 BOB worth of btc.
+        const res = profileProvider.hasWalletWithFunds(10, 'BOB');
+        expect(res).toEqual(true);
+      });
+    });
+
+    it('should return true just barely', () => {
+      rateProvider.updateRates().then(() => {
+        // The wallet w/ 10 btc should equate to 123 * 10 bob, which would result in this returning true
+        const res = profileProvider.hasWalletWithFunds(1230, 'BOB');
+        expect(res).toEqual(true);
+      });
+    });
+
+    it('should return false', () => {
+      rateProvider.updateRates().then(() => {
+        // The wallet w/ 10 btc is the biggest wallet. So no wallets are able to pay 1231 BOB.
+        const res = profileProvider.hasWalletWithFunds(1231, 'BOB');
+        expect(res).toEqual(false);
+      });
     });
   });
 });

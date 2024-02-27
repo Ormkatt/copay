@@ -1,9 +1,10 @@
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import * as _ from 'lodash';
 import { EmailNotificationsProvider } from '../email-notifications/email-notifications';
 import { Logger } from '../logger/logger';
 import { Network, PersistenceProvider } from '../persistence/persistence';
+
+declare var cordova: any;
 
 @Injectable()
 export class InvoiceProvider {
@@ -22,45 +23,23 @@ export class InvoiceProvider {
     public persistenceProvider: PersistenceProvider
   ) {
     this.logger.debug('InvoiceProvider initialized');
-    this.setCredentials();
   }
 
-  getNetwork() {
+  public setNetwork(network: string) {
+    this.credentials.NETWORK = Network[network];
+    this.credentials.BITPAY_API_URL =
+      network === Network.livenet
+        ? 'https://bitpay.com'
+        : 'https://test.bitpay.com';
+    this.logger.log(`invoice provider initialized with ${network}`);
+  }
+
+  public getNetwork() {
     return this.credentials.NETWORK;
-  }
-
-  setCredentials() {
-    if (this.getNetwork() === Network.testnet) {
-      this.credentials.BITPAY_API_URL = 'https://test.bitpay.com';
-    }
   }
 
   getApiPath() {
     return `${this.credentials.BITPAY_API_URL}/gift-cards`;
-  }
-
-  public async createBitpayInvoice(data) {
-    const dataSrc = {
-      brand: data.cardName,
-      currency: data.currency,
-      amount: data.amount,
-      clientId: data.uuid,
-      email: data.email,
-      transactionCurrency: data.buyerSelectedTransactionCurrency
-    };
-    const url = `${this.getApiPath()}/pay`;
-    const headers = new HttpHeaders({
-      'Content-Type': 'application/json'
-    });
-    const cardOrder = await this.http
-      .post(url, dataSrc, { headers })
-      .toPromise()
-      .catch(err => {
-        this.logger.error('BitPay Create Invoice: ERROR', JSON.stringify(data));
-        throw err;
-      });
-    this.logger.info('BitPay Create Invoice: SUCCESS');
-    return cardOrder as { accessKey: string; invoiceId: string };
   }
 
   public async getBitPayInvoice(id: string) {
@@ -75,62 +54,17 @@ export class InvoiceProvider {
     return res.data;
   }
 
-  public async getBitPayInvoiceData(id: string) {
+  public async getBitPayInvoiceWithNetwork(id: string, network: string) {
+    const host = network === 'testnet' ? 'test.bitpay.com' : 'bitpay.com';
     const res: any = await this.http
-      .get(`${this.credentials.BITPAY_API_URL}/invoiceData/${id}`)
+      .get(`https://${host}/invoices/${id}`)
       .toPromise()
       .catch(err => {
         this.logger.error('BitPay Get Invoice: ERROR ' + err.error.message);
         throw err.error.message;
       });
     this.logger.info('BitPay Get Invoice: SUCCESS');
-    return res;
-  }
-
-  public async setBuyerProvidedCurrency(
-    buyerSelectedTransactionCurrency: string,
-    invoiceId: string
-  ) {
-    const req = {
-      buyerSelectedTransactionCurrency,
-      invoiceId
-    };
-    const res: any = await this.http
-      .post(
-        `${
-          this.credentials.BITPAY_API_URL
-        }/invoiceData/setBuyerSelectedTransactionCurrency`,
-        req
-      )
-      .toPromise()
-      .catch(err => {
-        this.logger.error('BitPay Invoice Set Currency: ERROR ' + err.error);
-        throw err.error;
-      });
-    this.logger.info('BitPay Invoice Set Currency: SUCCESS');
-    return res;
-  }
-
-  public async setBuyerProvidedEmail(
-    buyerProvidedEmail: string,
-    invoiceId: string
-  ) {
-    const req = {
-      buyerProvidedEmail,
-      invoiceId
-    };
-    const res: any = await this.http
-      .post(
-        `${this.credentials.BITPAY_API_URL}/invoiceData/setBuyerProvidedEmail`,
-        req
-      )
-      .toPromise()
-      .catch(err => {
-        this.logger.error('BitPay Invoice Set Email: ERROR ' + err.error);
-        throw err.error;
-      });
-    this.logger.info('BitPay Invoice Set Email: SUCCESS');
-    return res;
+    return res.data;
   }
 
   public emailIsValid(email: string): boolean {
@@ -144,21 +78,31 @@ export class InvoiceProvider {
     this.setUserInfo({ email });
   }
 
-  public getUserEmail(): Promise<string> {
-    return this.persistenceProvider
-      .getGiftCardUserInfo()
-      .then(data => {
-        if (_.isString(data)) {
-          data = JSON.parse(data);
-        }
-        return data && data.email
-          ? data.email
-          : this.emailNotificationsProvider.getEmailIfEnabled();
-      })
-      .catch(_ => {});
-  }
-
   private setUserInfo(data: any): void {
     this.persistenceProvider.setGiftCardUserInfo(JSON.stringify(data));
+  }
+
+  public async getInvoiceData(id: string, network: string) {
+    const host = network === 'testnet' ? 'test.bitpay.com' : 'bitpay.com';
+    return new Promise<any>((response, reject) => {
+      cordova.plugin.http.sendRequest(
+        `https://${host}/invoiceData/${id}`,
+        {
+          method: 'get'
+        },
+        res => {
+          this.logger.debug('Get InvoiceData: Success');
+          return response(res);
+        },
+        ({ error }) => {
+          this.logger.error('Get InvoiceData: ERROR ' + error);
+          return reject(error);
+        }
+      );
+    });
+  }
+
+  public async canGetInvoiceData(id: string, network: string) {
+    return !!(await this.getInvoiceData(id, network).catch(() => false));
   }
 }

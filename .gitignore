@@ -12,14 +12,21 @@ npm-debug.log*
 
 yarn.lock
 
+# iOS
+build.json
+
+# Android
+build-extras.gradle
+
 # Firebase
-/GoogleService-Info.plist
-/google-services.json
+GoogleService-Info.plist
+google-services.json
 
 # Desktop electron
 cache
 dist/*
 electron/afterPack.js
+electron/build-electron.js
 *-embedded.provisionprofile
 *-entitlements.mas.plist
 

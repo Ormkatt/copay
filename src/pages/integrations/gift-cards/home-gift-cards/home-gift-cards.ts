@@ -5,16 +5,26 @@ import {
   transition,
   trigger
 } from '@angular/animations';
-import { Component, OnInit } from '@angular/core';
-import { NavController } from 'ionic-angular';
+import { Component, Input, OnInit, ViewChild } from '@angular/core';
+import { Content, ItemSliding, NavController } from 'ionic-angular';
 import { timer } from 'rxjs/observable/timer';
 import { debounceTime } from 'rxjs/operators';
-import { ActionSheetProvider, AppProvider } from '../../../../providers';
+import {
+  ActionSheetProvider,
+  AppProvider,
+  ExternalLinkProvider,
+  PersistenceProvider,
+  PlatformProvider
+} from '../../../../providers';
 import {
   GiftCardProvider,
   sortByDisplayName
 } from '../../../../providers/gift-card/gift-card';
-import { GiftCard } from '../../../../providers/gift-card/gift-card.types';
+import {
+  CardConfig,
+  GiftCard
+} from '../../../../providers/gift-card/gift-card.types';
+import { BuyCardPage } from '../buy-card/buy-card';
 import { CardCatalogPage } from '../card-catalog/card-catalog';
 import { CardDetailsPage } from '../card-details/card-details';
 import { PurchasedCardsPage } from '../purchased-cards/purchased-cards';
@@ -41,36 +51,75 @@ import { GiftCardItem } from './gift-card-item/gift-card-item';
     ]),
     trigger('preventInitialChildAnimations', [
       transition(':enter', [query(':enter', [], { optional: true })])
+    ]),
+    trigger('fade', [
+      transition(':enter', [
+        style({
+          transform: 'translateY(5px)',
+          opacity: 0
+        }),
+        animate('200ms')
+      ])
     ])
   ]
 })
 export class HomeGiftCards implements OnInit {
   public activeBrands: GiftCard[][];
   public appName: string;
+  public hideDiscount: boolean = false;
+  public primaryCatalogCurrency: string = 'usd';
   public disableArchiveAnimation: boolean = true; // Removes flicker on iOS when returning to home tab
+
+  @Input() activeCards: GiftCard[];
+
+  @Input('scrollArea')
+  scrollArea: Content;
+  ready: boolean;
+  @ViewChild(ItemSliding)
+  slidingItem: ItemSliding;
 
   constructor(
     private actionSheetProvider: ActionSheetProvider,
     private appProvider: AppProvider,
+    private externalLinkProvider: ExternalLinkProvider,
     private giftCardProvider: GiftCardProvider,
-    private navCtrl: NavController
+    private navCtrl: NavController,
+    private persistenceProvider: PersistenceProvider,
+    public platformProvider: PlatformProvider
   ) {}
 
   async ngOnInit() {
     this.appName = this.appProvider.info.userVisibleName;
     await this.initGiftCards();
+    setTimeout(() => {
+      this.ready = true;
+    }, 50);
+    const availableCards = await this.giftCardProvider.getAvailableCards();
+    this.primaryCatalogCurrency = getPrimaryCatalogCurrency(availableCards);
+    this.hideDiscount = await this.persistenceProvider.getHideGiftCardDiscountItem();
     await timer(3000).toPromise();
     this.giftCardProvider.preloadImages();
   }
 
   public buyGiftCards() {
-    this.navCtrl.push(CardCatalogPage);
+    this.navCtrl.push(CardCatalogPage, { giftCardsOnly: true });
+  }
+
+  public async buyCard(cardName: string) {
+    const cardConfig = await this.giftCardProvider.getCardConfig(cardName);
+    this.navCtrl.push(BuyCardPage, { cardConfig });
   }
 
   public onGiftCardAction(event, purchasedCards: GiftCard[]) {
     event.action === 'view'
       ? this.viewGiftCards(event.cardName, purchasedCards)
       : this.showArchiveSheet(event);
+  }
+
+  public launchExtension() {
+    this.externalLinkProvider.open(
+      'https://bitpay.com/extension/?launchExtension=true'
+    );
   }
 
   private async viewGiftCards(cardName: string, cards: GiftCard[]) {
@@ -99,6 +148,20 @@ export class HomeGiftCards implements OnInit {
     });
   }
 
+  public async showHideDiscountItemSheet() {
+    this.slidingItem.close();
+    const hideDiscountSheet = this.actionSheetProvider.createInfoSheet(
+      'hide-gift-card-discount-item'
+    );
+    hideDiscountSheet.present();
+    hideDiscountSheet.onDidDismiss(async confirm => {
+      if (!confirm) return;
+      this.disableArchiveAnimation = false;
+      this.hideDiscount = true;
+      await this.giftCardProvider.hideDiscountItem();
+    });
+  }
+
   private async hideArchivedBrands() {
     this.disableArchiveAnimation = false;
     const purchasedBrands = await this.giftCardProvider.getPurchasedBrands();
@@ -112,7 +175,7 @@ export class HomeGiftCards implements OnInit {
   }
 
   private async initGiftCards() {
-    this.loadGiftCards();
+    this.loadGiftCards(true);
     this.giftCardProvider.cardUpdates$
       .pipe(debounceTime(300))
       .subscribe(card =>
@@ -136,9 +199,11 @@ export class HomeGiftCards implements OnInit {
     this.giftCardProvider.updatePendingGiftCards(allCards);
   }
 
-  private async loadGiftCards() {
+  private async loadGiftCards(isInitialLoad: boolean = false) {
     this.disableArchiveAnimation = true;
-    const activeCards = await this.giftCardProvider.getActiveCards();
+    const activeCards = isInitialLoad
+      ? this.activeCards
+      : await this.giftCardProvider.getActiveCards();
     const activeBrands = this.groupCardsByBrand(activeCards);
     this.updatePendingGiftCards(activeBrands);
     this.activeBrands = activeBrands;
@@ -146,16 +211,22 @@ export class HomeGiftCards implements OnInit {
 
   private groupCardsByBrand(cards: GiftCard[]): GiftCard[][] {
     return cards
-      .reduce(
-        (brands, c) => {
-          const brandCards = brands.find(b => b[0].name === c.name);
-          brandCards ? brandCards.push(c) : brands.push([c]);
-          return brands;
-        },
-        [] as GiftCard[][]
-      )
+      .reduce((brands, c) => {
+        const brandCards = brands.find(b => b[0].name === c.name);
+        brandCards ? brandCards.push(c) : brands.push([c]);
+        return brands;
+      }, [] as GiftCard[][])
       .sort((a, b) => sortByDisplayName(a[0], b[0]));
   }
+}
+
+export function getPrimaryCatalogCurrency(availableCards: CardConfig[]) {
+  const homeLogoCollageSupportedCurrencies = ['cad', 'eur', 'gbp', 'usd'];
+  const firstBrandCurrency =
+    availableCards[0] && availableCards[0].currency.toLowerCase();
+  return homeLogoCollageSupportedCurrencies.indexOf(firstBrandCurrency) > -1
+    ? firstBrandCurrency
+    : 'usd';
 }
 
 export const HOME_GIFT_CARD_COMPONENTS = [HomeGiftCards, GiftCardItem];

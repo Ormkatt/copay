@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { TranslateService } from '@ngx-translate/core';
 import {
+  App,
   Events,
   ModalController,
   NavController,
@@ -12,27 +13,48 @@ import { Logger } from '../../../../providers/logger/logger';
 
 // Pages
 import { FinishModalPage } from '../../../finish/finish';
+import { ConfirmPage } from '../../../send/confirm/confirm';
+import { CardDetailsPage } from '../../gift-cards/card-details/card-details';
+import { PurchasedCardsPage } from '../purchased-cards/purchased-cards';
 
 // Provider
-import { DecimalPipe } from '@angular/common';
 import {
+  AddressBookProvider,
+  AddressProvider,
+  AnalyticsProvider,
+  BitPayIdProvider,
   EmailNotificationsProvider,
   FeeProvider,
-  TxConfirmNotificationProvider,
-  WalletTabsProvider
+  IABCardProvider,
+  IncomingDataProvider,
+  InvoiceProvider,
+  MerchantProvider,
+  PersistenceProvider,
+  RateProvider,
+  TxConfirmNotificationProvider
 } from '../../../../providers';
 import { ActionSheetProvider } from '../../../../providers/action-sheet/action-sheet';
 import { AppProvider } from '../../../../providers/app/app';
 import { BwcErrorProvider } from '../../../../providers/bwc-error/bwc-error';
 import { BwcProvider } from '../../../../providers/bwc/bwc';
 import { ClipboardProvider } from '../../../../providers/clipboard/clipboard';
+import { CoinbaseProvider } from '../../../../providers/coinbase/coinbase';
 import { ConfigProvider } from '../../../../providers/config/config';
+import { CurrencyProvider } from '../../../../providers/currency/currency';
+import { ErrorsProvider } from '../../../../providers/errors/errors';
 import { ExternalLinkProvider } from '../../../../providers/external-link/external-link';
-import { GiftCardProvider } from '../../../../providers/gift-card/gift-card';
+import {
+  getActivationFee,
+  getPromo,
+  getVisibleDiscount,
+  GiftCardProvider,
+  hasVisibleDiscount
+} from '../../../../providers/gift-card/gift-card';
 import {
   CardConfig,
   GiftCard
 } from '../../../../providers/gift-card/gift-card.types';
+import { HomeIntegrationsProvider } from '../../../../providers/home-integrations/home-integrations';
 import { OnGoingProcessProvider } from '../../../../providers/on-going-process/on-going-process';
 import { PayproProvider } from '../../../../providers/paypro/paypro';
 import { PlatformProvider } from '../../../../providers/platform/platform';
@@ -40,13 +62,11 @@ import { PopupProvider } from '../../../../providers/popup/popup';
 import { ProfileProvider } from '../../../../providers/profile/profile';
 import { ReplaceParametersProvider } from '../../../../providers/replace-parameters/replace-parameters';
 import { TxFormatProvider } from '../../../../providers/tx-format/tx-format';
+import { WalletConnectProvider } from '../../../../providers/wallet-connect/wallet-connect';
 import {
   TransactionProposal,
   WalletProvider
 } from '../../../../providers/wallet/wallet';
-import { ConfirmPage } from '../../../send/confirm/confirm';
-import { CardDetailsPage } from '../../gift-cards/card-details/card-details';
-import { PurchasedCardsPage } from '../purchased-cards/purchased-cards';
 
 @Component({
   selector: 'confirm-card-purchase-page',
@@ -55,30 +75,52 @@ import { PurchasedCardsPage } from '../purchased-cards/purchased-cards';
 export class ConfirmCardPurchasePage extends ConfirmPage {
   public currency: string;
   private message: string;
-  private invoiceId: string;
+  public invoiceId: string;
+  public invoiceRates: any;
   private configWallet;
+  private invoiceFeeSat: number;
   public currencyIsoCode: string;
 
   public totalAmountStr: string;
   public invoiceFee: number;
   public networkFee: number;
   public totalAmount: number;
+  public totalDiscount: number;
+  public accessKey: string;
+  public activationFee: number;
   public amountUnitStr: string;
   public network: string;
   public onlyIntegers: boolean;
+  public isERCToken: boolean;
+  public paypro: any;
+  public invoice: any;
+  public purchaseParams: any;
 
   public cardConfig: CardConfig;
-  public hideSlideButton: boolean;
+  public displayNameIncludesGiftCard: boolean = false;
+
+  public phone: string;
+
+  public coinbaseAccount;
+  public coinbaseAccounts;
+  public showCoinbase: boolean;
 
   constructor(
+    analyticsProvider: AnalyticsProvider,
+    addressProvider: AddressProvider,
+    addressBookProvider: AddressBookProvider,
+    app: App,
     actionSheetProvider: ActionSheetProvider,
     bwcErrorProvider: BwcErrorProvider,
     bwcProvider: BwcProvider,
     configProvider: ConfigProvider,
-    decimalPipe: DecimalPipe,
+    currencyProvider: CurrencyProvider,
+    errorsProvider: ErrorsProvider,
     feeProvider: FeeProvider,
     private giftCardProvider: GiftCardProvider,
+    public incomingDataProvider: IncomingDataProvider,
     replaceParametersProvider: ReplaceParametersProvider,
+    rateProvider: RateProvider,
     private emailNotificationsProvider: EmailNotificationsProvider,
     externalLinkProvider: ExternalLinkProvider,
     logger: Logger,
@@ -92,19 +134,31 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
     txFormatProvider: TxFormatProvider,
     walletProvider: WalletProvider,
     translate: TranslateService,
-    private payproProvider: PayproProvider,
+    payproProvider: PayproProvider,
     platformProvider: PlatformProvider,
-    walletTabsProvider: WalletTabsProvider,
     clipboardProvider: ClipboardProvider,
     events: Events,
-    AppProvider: AppProvider
+    coinbaseProvider: CoinbaseProvider,
+    appProvider: AppProvider,
+    iabCardProvider: IABCardProvider,
+    homeIntegrationsProvider: HomeIntegrationsProvider,
+    persistenceProvider: PersistenceProvider,
+    WalletConnectProvider: WalletConnectProvider,
+    bitpayIdProvider: BitPayIdProvider,
+    private merchantProvider: MerchantProvider,
+    invoiceProvider: InvoiceProvider
   ) {
     super(
+      addressProvider,
+      addressBookProvider,
+      analyticsProvider,
+      app,
       actionSheetProvider,
       bwcErrorProvider,
       bwcProvider,
       configProvider,
-      decimalPipe,
+      currencyProvider,
+      errorsProvider,
       externalLinkProvider,
       feeProvider,
       logger,
@@ -116,26 +170,36 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
       profileProvider,
       popupProvider,
       replaceParametersProvider,
+      rateProvider,
       translate,
       txConfirmNotificationProvider,
       txFormatProvider,
       walletProvider,
-      walletTabsProvider,
       clipboardProvider,
       events,
-      AppProvider
+      coinbaseProvider,
+      appProvider,
+      payproProvider,
+      iabCardProvider,
+      homeIntegrationsProvider,
+      persistenceProvider,
+      WalletConnectProvider,
+      invoiceProvider,
+      bitpayIdProvider
     );
-    this.hideSlideButton = false;
     this.configWallet = this.configProvider.get().wallet;
   }
 
   async ngOnInit() {
     this.amount = this.navParams.data.amount;
     this.currency = this.navParams.data.currency;
-    this.cardConfig = await this.giftCardProvider.getCardConfig(
-      this.navParams.get('cardName')
-    );
+    this.phone = this.navParams.get('phone');
+    this.cardConfig = this.navParams.get('cardConfig');
+    this.displayNameIncludesGiftCard = this.cardConfig.displayName
+      .toLowerCase()
+      .includes('gift card');
     this.onlyIntegers = this.cardConfig.currency === 'JPY';
+    this.activationFee = getActivationFee(+this.amount, this.cardConfig);
   }
 
   ionViewDidLoad() {
@@ -147,20 +211,90 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
     this.navCtrl.swipeBackEnabled = false;
 
     this.network = this.giftCardProvider.getNetwork();
-    this.wallets = this.profileProvider.getWallets({
+
+    const walletOptions = {
       onlyComplete: true,
       network: this.network,
-      hasFunds: true
+      hasFunds: true,
+      noEthMultisig: true
+    };
+    this.wallets = this.profileProvider.getWallets({
+      ...walletOptions,
+      minFiatCurrency: { amount: this.amount, currency: this.currency }
     });
-    if (_.isEmpty(this.wallets)) {
-      this.showErrorInfoSheet(
-        this.translate.instant('No wallets available'),
-        null,
-        true
+
+    const pendingWallets = this.profileProvider.getWallets({
+      ...walletOptions,
+      minPendingAmount: { amount: this.amount, currency: this.currency }
+    });
+
+    this.showCoinbase =
+      this.homeIntegrationsProvider.shouldShowInHome('coinbase') &&
+      this.coinbaseProvider.isLinked() &&
+      this.coinbaseProvider.isTokenValid();
+
+    this.coinbaseAccounts =
+      this.showCoinbase && this.network === 'livenet'
+        ? this.coinbaseProvider.getAvailableAccounts(null, {
+            amount: this.amount,
+            currency: this.currency
+          })
+        : [];
+
+    if (
+      _.isEmpty(this.wallets) &&
+      !_.isEmpty(pendingWallets) &&
+      _.isEmpty(this.coinbaseAccounts)
+    ) {
+      const subtitle = this.translate.instant(
+        'You do not have enough confirmed funds to make this payment. Please wait for your pending transactions to confirm.'
       );
+      const title = this.translate.instant('Not enough confirmed funds');
+      this.errorsProvider.showDefaultError(subtitle, title);
+      return;
+    } else if (_.isEmpty(this.wallets) && _.isEmpty(this.coinbaseAccounts)) {
+      this.errorsProvider.showNoWalletsAvailableInfo();
       return;
     }
     this.showWallets(); // Show wallet selector
+  }
+
+  public logGiftCardPurchaseEvent(
+    isSlideConfirmFinished: boolean,
+    transactionCurrency: string,
+    giftData?: any
+  ) {
+    if (!isSlideConfirmFinished) {
+      this.giftCardProvider.logEvent('giftcards_purchase_start', {
+        brand: this.cardConfig.name,
+        transactionCurrency
+      });
+      this.giftCardProvider.logEvent('add_to_cart', {
+        brand: this.cardConfig.name,
+        category: 'giftCards'
+      });
+    } else {
+      this.giftCardProvider.logEvent('giftcards_purchase_finish', {
+        brand: this.cardConfig.name,
+        transactionCurrency
+      });
+
+      this.giftCardProvider.logEvent('set_checkout_option', {
+        transactionCurrency,
+        checkout_step: 1
+      });
+
+      this.giftCardProvider.logEvent('purchase', {
+        value: giftData.amount,
+        items: [
+          {
+            name: this.cardConfig.name,
+            category: 'giftCards',
+            quantity: 1
+          }
+        ]
+      });
+    }
   }
 
   public cancel() {
@@ -173,8 +307,34 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
     }
   }
 
-  public openExternalLink(url: string) {
-    this.externalLinkProvider.open(url);
+  public openExternalLink(urlKey: string) {
+    let url: string;
+    let title: string;
+    switch (urlKey) {
+      case 'networkCost':
+        url =
+          'https://support.bitpay.com/hc/en-us/articles/115002990803-Why-Am-I-Being-Charged-an-Additional-Network-Cost-on-My-BitPay-Invoice-';
+        title = this.translate.instant('Network Cost');
+        break;
+      case 'minerFee':
+        url =
+          'https://support.bitpay.com/hc/en-us/articles/115003393863-What-are-bitcoin-miner-fees-Why-are-miner-fees-so-high-';
+        title = this.translate.instant('Miner Fee');
+        break;
+    }
+    let message = this.translate.instant(
+      'This information is available at the website.'
+    );
+    let okText = this.translate.instant('Open');
+    let cancelText = this.translate.instant('Go Back');
+    this.externalLinkProvider.open(
+      url,
+      true,
+      title,
+      message,
+      okText,
+      cancelText
+    );
   }
 
   private resetValues() {
@@ -183,45 +343,42 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
   }
 
   async publishAndSign(wallet, txp) {
-    if (!wallet.canSign() && !wallet.isPrivKeyExternal()) {
+    if (!wallet.canSign) {
       const err = this.translate.instant('No signing proposal: No private key');
       return Promise.reject(err);
     }
-    if (this.walletProvider.isEncrypted(wallet)) {
-      this.hideSlideButton = true;
-    }
-
     await this.walletProvider.publishAndSign(wallet, txp);
-    this.hideSlideButton = false;
     return this.onGoingProcessProvider.clear();
   }
 
   private satToFiat(coin: string, sat: number) {
-    return this.txFormatProvider.toFiat(coin, sat, this.currencyIsoCode);
+    return this.txFormatProvider.toFiat(coin, sat, this.currencyIsoCode, {
+      rates: this.invoiceRates
+    });
   }
 
   private async setTotalAmount(
-    wallet,
-    amountSat: number,
-    invoiceFeeSat: number,
-    networkFeeSat: number
+    coin,
+    invoiceFeeSat: number = 0,
+    networkFeeSat: number = 0
   ) {
-    const amount = await this.satToFiat(wallet.coin, amountSat);
-    this.amount = Number(amount);
-
-    const invoiceFee = await this.satToFiat(wallet.coin, invoiceFeeSat);
+    const invoiceFee = await this.satToFiat(coin, invoiceFeeSat);
     this.invoiceFee = Number(invoiceFee);
-
-    const networkFee = await this.satToFiat(wallet.coin, networkFeeSat);
+    const chain = this.currencyProvider.getChain(coin).toLowerCase();
+    const networkFee = await this.satToFiat(chain, networkFeeSat);
     this.networkFee = Number(networkFee);
-    this.totalAmount = this.amount + this.invoiceFee + this.networkFee;
+    this.totalAmount =
+      +this.amount -
+      this.totalDiscount +
+      this.activationFee +
+      this.invoiceFee +
+      this.networkFee;
   }
 
-  private isCryptoCurrencySupported(wallet, invoice) {
-    const COIN = wallet.coin.toUpperCase();
+  private isCryptoCurrencySupported(coin, invoice) {
     return (
-      (invoice['supportedTransactionCurrencies'][COIN] &&
-        invoice['supportedTransactionCurrencies'][COIN].enabled) ||
+      (invoice['supportedTransactionCurrencies'][coin] &&
+        invoice['supportedTransactionCurrencies'][coin].enabled) ||
       false
     );
   }
@@ -229,13 +386,14 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
   private handleCreateInvoiceError(err) {
     let err_title = this.translate.instant('Error creating the invoice');
     let err_msg;
-    const errMessage = err && err.error && err.error.message;
-    if (errMessage && errMessage.match(/suspended/i)) {
+    const errMessage = err && ((err.error && err.error.message) || err.message);
+    if (
+      (errMessage && errMessage.match(/suspended/i)) ||
+      errMessage === 'Gift card currently unavailable'
+    ) {
       err_title = this.translate.instant('Service not available');
       err_msg = this.translate.instant(
-        `${
-          this.cardConfig.displayName
-        } gift card purchases are not available at this time. Please try again later.`
+        `${this.cardConfig.displayName} gift card purchases are not available at this time. Please try again later.`
       );
     } else if (errMessage) {
       err_msg = errMessage;
@@ -244,6 +402,8 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
         `Unable to complete your purchase at this time. Please try again later.`
       );
     }
+
+    this.refreshCardConfigIfNeeded();
 
     throw {
       title: err_title,
@@ -259,6 +419,7 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
       });
 
     const accessKey = cardOrder && cardOrder.accessKey;
+    const totalDiscount = cardOrder && cardOrder.totalDiscount;
     if (!accessKey) {
       throw {
         message: this.translate.instant('No access key defined')
@@ -271,40 +432,47 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
           message: this.translate.instant('Could not get the invoice')
         };
       });
-    return { invoice, accessKey };
+    this.invoice = invoice;
+    this.accessKey = accessKey;
+    this.totalDiscount = totalDiscount;
+    return { invoice, accessKey, totalDiscount };
   }
 
   private async createTx(wallet, invoice, message: string) {
     const COIN = wallet.coin.toUpperCase();
-    const payProUrl =
-      invoice && invoice.paymentCodes ? invoice.paymentCodes[COIN].BIP73 : null;
+    const paymentCode = this.currencyProvider.getPaymentCode(wallet.coin);
+    const protocolUrl = invoice.paymentCodes[COIN][paymentCode];
+    const payProUrl = this.incomingDataProvider.getPayProUrl(protocolUrl);
 
     if (!payProUrl) {
       throw {
-        title: this.translate.instant('Error in Payment Protocol'),
+        title: this.translate.instant('Error fetching this invoice'),
         message: this.translate.instant('Invalid URL')
       };
     }
 
-    const details = await this.payproProvider
-      .getPayProDetails(payProUrl, wallet.coin)
-      .catch(err => {
-        throw {
-          title: this.translate.instant('Error in Payment Protocol'),
-          message: err
-        };
-      });
+    const address = await this.walletProvider.getAddress(wallet, false);
+    const payload = {
+      address
+    };
 
+    if (!this.paypro) {
+      this.paypro = await this.payproProvider
+        .getPayProDetails({ paymentUrl: payProUrl, coin: wallet.coin, payload })
+        .catch(err => {
+          throw {
+            title: this.translate.instant('Error fetching this invoice'),
+            message: err
+          };
+        });
+    }
+    const { instructions } = this.paypro;
     const txp: Partial<TransactionProposal> = {
-      amount: details.amount,
-      toAddress: details.toAddress,
-      outputs: [
-        {
-          toAddress: details.toAddress,
-          amount: details.amount,
-          message
-        }
-      ],
+      coin: wallet.coin,
+      amount: _.sumBy(instructions, 'amount'),
+      from: address,
+      toAddress: instructions[0].toAddress,
+      outputs: [],
       message,
       customData: {
         giftCardName: this.cardConfig.name,
@@ -314,11 +482,45 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
       excludeUnconfirmedUtxos: this.configWallet.spendUnconfirmed ? false : true
     };
 
-    if (details.requiredFeeRate) {
-      txp.feePerKb = Math.ceil(details.requiredFeeRate * 1024);
+    for (const instruction of instructions) {
+      txp.outputs.push({
+        toAddress: instruction.toAddress,
+        amount: instruction.amount,
+        message: instruction.message,
+        data: instruction.data
+      });
+      if (this.walletProvider.isZceCompatible(this.wallet)) {
+        txp.instantAcceptanceEscrow = instruction.instantAcceptanceEscrow;
+      }
+    }
+
+    if (
+      wallet.coin === 'xrp' &&
+      instructions &&
+      instructions[0] &&
+      instructions[0].outputs &&
+      instructions[0].outputs[0] &&
+      instructions[0].outputs[0].invoiceID
+    ) {
+      txp.invoiceID = instructions[0].outputs[0].invoiceID;
+    }
+
+    if (wallet.credentials.token) {
+      txp.tokenAddress = wallet.credentials.token.address;
+    }
+
+    if (this.wallet.credentials.multisigEthInfo) {
+      txp.multisigContractAddress = this.wallet.credentials.multisigEthInfo.multisigContractAddress;
+    }
+
+    if (this.paypro.requiredFeeRate) {
+      const requiredFeeRate = !this.currencyProvider.isUtxoCoin(wallet.coin)
+        ? parseInt((this.paypro.requiredFeeRate * 1.1).toFixed(0), 10) // Workaround to avoid gas price supplied is lower than requested error
+        : Math.ceil(this.paypro.requiredFeeRate * 1000);
+      txp.feePerKb = requiredFeeRate;
       this.logger.debug('Using merchant fee rate:' + txp.feePerKb);
     } else {
-      txp.feeLevel = this.configWallet.settings.feeLevel || 'normal';
+      txp.feeLevel = this.feeProvider.getCoinCurrentFeeLevel(wallet.coin);
     }
 
     txp['origToAddress'] = txp.toAddress;
@@ -328,12 +530,44 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
       txp.outputs[0].toAddress = txp.toAddress;
     }
 
-    return this.walletProvider.createTx(wallet, txp).catch(err => {
-      throw {
-        title: this.translate.instant('Could not create transaction'),
-        message: this.bwcErrorProvider.msg(err)
-      };
-    });
+    this.onGoingProcessProvider.set('loadingTxInfo');
+    const ctxp = await this.walletProvider.createTx(wallet, txp);
+
+    // Save in memory
+    this.tx = ctxp;
+    this.invoiceId = invoice.id;
+
+    const now = moment().unix() * 1000;
+
+    this.tx.giftData = {
+      currency: this.purchaseParams.currency,
+      date: now,
+      amount: this.purchaseParams.amount,
+      uuid: this.purchaseParams.uuid,
+      accessKey: this.accessKey,
+      invoiceId: invoice.id,
+      invoiceUrl: invoice.url,
+      invoiceTime: invoice.invoiceTime,
+      name: this.cardConfig.name
+    };
+    const amountSat = invoice.paymentSubtotals[COIN];
+    this.totalAmountStr = this.txFormatProvider.formatAmountStr(
+      wallet.coin,
+      ctxp.amount || amountSat
+    );
+
+    // Warn: fee too high
+    if (this.currencyProvider.isUtxoCoin(wallet.coin)) {
+      this.checkFeeHigh(
+        Number(amountSat),
+        Number(this.invoiceFeeSat) + Number(ctxp.fee)
+      );
+    }
+
+    this.setTotalAmount(wallet.coin, this.invoiceFeeSat, ctxp.fee);
+
+    this.logGiftCardPurchaseEvent(false, COIN, this.purchaseParams);
+    this.onGoingProcessProvider.clear();
   }
 
   private async redeemGiftCard(initialCard: GiftCard) {
@@ -345,7 +579,18 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
     await this.giftCardProvider.saveGiftCard(card);
     this.onGoingProcessProvider.clear();
     this.logger.debug('Saved new gift card with status: ' + card.status);
+    this.logDiscountedPurchase();
+    this.events.publish('GiftCards/GiftCardPurchased');
     this.finish(card);
+  }
+
+  private logDiscountedPurchase() {
+    if (!getPromo(this.cardConfig)) return;
+    const params = {
+      ...this.giftCardProvider.getPromoEventParams(this.cardConfig),
+      discounted: hasVisibleDiscount(this.cardConfig) ? true : false
+    };
+    this.giftCardProvider.logEvent('purchasedGiftCard', params);
   }
 
   private async promptEmail() {
@@ -354,18 +599,29 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
       return Promise.resolve(notificationEmail);
     }
     const email = await this.giftCardProvider.getUserEmail();
-    if (email) return Promise.resolve(email);
-    const title = this.translate.instant('Enter email address');
-    const message = this.translate.instant(
-      'Where do you want to receive your purchase receipt?'
-    );
-    const opts = { type: 'email', defaultText: '' };
-    const newEmail = await this.popupProvider.ionicPrompt(title, message, opts);
-    if (!this.giftCardProvider.emailIsValid(newEmail)) {
-      this.throwEmailRequiredError();
+    if (email) {
+      return Promise.resolve(email);
     }
-    this.giftCardProvider.storeEmail(newEmail);
-    return newEmail;
+    return this.setEmail();
+  }
+
+  private async setEmail() {
+    const emailComponent = this.actionSheetProvider.createEmailComponent();
+    await emailComponent.present();
+    return new Promise(resolve => {
+      emailComponent.onDidDismiss(email => {
+        if (email) {
+          if (!this.giftCardProvider.emailIsValid(email)) {
+            this.throwEmailRequiredError();
+          }
+          this.giftCardProvider.storeEmail(email);
+          resolve(email);
+        } else {
+          this.throwEmailRequiredError();
+        }
+        this.isOpenSelector = false;
+      });
+    });
   }
 
   private throwEmailRequiredError() {
@@ -378,37 +634,42 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
     throw new Error('email required');
   }
 
-  private async initialize(wallet) {
+  private async initialize(wallet, email) {
     const COIN = wallet.coin.toUpperCase();
+    this.currencyIsoCode = this.currency;
+    this.onGoingProcessProvider.set('loadingTxInfo');
+    await this.refreshCardConfigIfNeeded().catch(_ => {});
+    const discount = getVisibleDiscount(this.cardConfig);
+    this.purchaseParams = {
+      amount: this.amount,
+      currency: this.currency,
+      discounts: discount ? [discount.code] : [],
+      uuid: wallet.id,
+      email,
+      buyerSelectedTransactionCurrency: COIN,
+      cardName: this.cardConfig.name,
+      ...(this.phone && { phone: this.phone })
+    };
+
+    const data = await this.createInvoice(this.purchaseParams).catch(err => {
+      this.onGoingProcessProvider.clear();
+      throw this.showErrorInfoSheet(err.message, err.title, true);
+    });
+
+    this.invoiceRates = lowercaseKeys(data.invoice.exchangeRates);
+
     const parsedAmount = this.txFormatProvider.parseAmount(
       wallet.coin,
       this.amount,
       this.currency,
-      this.onlyIntegers
+      { onlyIntegers: this.onlyIntegers, rates: this.invoiceRates }
     );
-    this.currencyIsoCode = parsedAmount.currency;
     this.amountUnitStr = parsedAmount.amountUnitStr;
 
-    const email = await this.promptEmail();
-    this.hideSlideButton = false;
-    const dataSrc = {
-      amount: parsedAmount.amount,
-      currency: parsedAmount.currency,
-      uuid: wallet.id,
-      email,
-      buyerSelectedTransactionCurrency: COIN,
-      cardName: this.cardConfig.name
-    };
-    this.onGoingProcessProvider.set('loadingTxInfo');
-
-    const data = await this.createInvoice(dataSrc).catch(err => {
-      this.onGoingProcessProvider.clear();
-      throw this.showErrorInfoSheet(err.message, err.title, true);
-    });
     const invoice = data.invoice;
-    const accessKey = data.accessKey;
+    this.totalDiscount = data.totalDiscount || 0;
 
-    if (!this.isCryptoCurrencySupported(wallet, invoice)) {
+    if (!this.isCryptoCurrencySupported(COIN, invoice)) {
       this.onGoingProcessProvider.clear();
       let msg = this.translate.instant(
         'Purchases with this cryptocurrency are not enabled'
@@ -420,34 +681,157 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
     // Sometimes API does not return this element;
     invoice['minerFees'][COIN]['totalFee'] =
       invoice.minerFees[COIN].totalFee || 0;
-    let invoiceFeeSat = invoice.minerFees[COIN].totalFee;
+    this.invoiceFeeSat = invoice.minerFees[COIN].totalFee;
 
     this.message = this.replaceParametersProvider.replace(
       this.translate.instant(`{{amountUnitStr}} Gift Card`),
       { amountUnitStr: this.amountUnitStr }
     );
 
-    const ctxp = await this.createTx(wallet, invoice, this.message).catch(
-      err => {
-        this.onGoingProcessProvider.clear();
-        this.resetValues();
-        throw this.showErrorInfoSheet(err.message, err.title);
+    await this.createTx(wallet, invoice, this.message).catch(err =>
+      this._handleError(err)
+    );
+  }
+
+  private _handleError(err) {
+    const isInsufficientFundsErr =
+      err instanceof this.errors.INSUFFICIENT_FUNDS;
+    const isInsufficientFundsForFeeErr =
+      err instanceof this.errors.INSUFFICIENT_FUNDS_FOR_FEE;
+    const isInsufficientLinkedEthFundsForFeeErr =
+      err instanceof this.errors.INSUFFICIENT_ETH_FEE;
+
+    if (
+      this.paypro &&
+      this.paypro.instructions &&
+      this.paypro.instructions[0] &&
+      this.paypro.instructions[0].instantAcceptanceEscrow
+    ) {
+      this.paypro.instructions[0].instantAcceptanceEscrow = undefined;
+      this.createTx(this.wallet, this.invoice, this.message).catch(err =>
+        this._handleError(err)
+      );
+      return;
+    }
+    this.onGoingProcessProvider.clear();
+    if (isInsufficientFundsErr) {
+      this.showErrorInfoSheet(err.message, err.title);
+    } else if (
+      isInsufficientFundsForFeeErr ||
+      isInsufficientLinkedEthFundsForFeeErr
+    ) {
+      let { requiredFee } = err.messageData;
+      const coin = this.wallet.coin.toLowerCase();
+      let feeCoin = isInsufficientLinkedEthFundsForFeeErr ? 'eth' : coin;
+
+      this.setTotalAmount(coin, this.invoiceFeeSat, requiredFee).then(() => {
+        const totalFee = this.invoiceFeeSat + requiredFee;
+        const feeAlternative = this.txFormatProvider.formatAlternativeStr(
+          feeCoin,
+          totalFee
+        );
+        const fee = this.txFormatProvider.formatAmountStr(feeCoin, totalFee);
+        this._showInsufficientFundsForFeeInfoSheet(fee, feeAlternative, coin);
+      });
+    } else {
+      this.showErrorInfoSheet(err, null);
+    }
+    this.resetValues();
+  }
+
+  private _showInsufficientFundsForFeeInfoSheet(
+    fee,
+    feeAlternative,
+    coin
+  ): void {
+    const insufficientFundsInfoSheet = this.actionSheetProvider.createInfoSheet(
+      'insufficient-funds-for-fee',
+      {
+        fee,
+        feeAlternative,
+        coin,
+        isERCToken: this.currencyProvider.isERCToken(coin)
       }
+    );
+    insufficientFundsInfoSheet.present();
+    insufficientFundsInfoSheet.onDidDismiss(option => {
+      if (option) {
+        this.openExternalLink(
+          'https://support.bitpay.com/hc/en-us/articles/115003393863-What-are-bitcoin-miner-fees-'
+        );
+      }
+    });
+  }
+
+  private async initializeCoinbase(account, email) {
+    const COIN = account.currency.code;
+
+    this.currencyIsoCode = this.currency;
+    this.onGoingProcessProvider.set('loadingTxInfo');
+    await this.refreshCardConfigIfNeeded().catch(_ => {});
+    const discount = getVisibleDiscount(this.cardConfig);
+    this.purchaseParams = {
+      amount: this.amount,
+      currency: this.currency,
+      discounts: discount ? [discount.code] : [],
+      uuid: this.coinbaseProvider.coinbaseData.user.id,
+      email,
+      buyerSelectedTransactionCurrency: COIN,
+      cardName: this.cardConfig.name,
+      ...(this.phone && { phone: this.phone })
+    };
+
+    const data = await this.createInvoice(this.purchaseParams).catch(err => {
+      this.onGoingProcessProvider.clear();
+      throw this.showErrorInfoSheet(err.message, err.title, true);
+    });
+
+    this.invoiceRates = lowercaseKeys(data.invoice.exchangeRates);
+
+    const parsedAmount = this.txFormatProvider.parseAmount(
+      COIN.toLowerCase(),
+      this.amount,
+      this.currency,
+      { onlyIntegers: this.onlyIntegers, rates: this.invoiceRates }
+    );
+    this.amountUnitStr = parsedAmount.amountUnitStr;
+
+    const invoice = data.invoice;
+    const accessKey = data.accessKey;
+    this.totalDiscount = data.totalDiscount || 0;
+    const amountSat = invoice.paymentSubtotals[COIN];
+
+    if (!this.isCryptoCurrencySupported(COIN, invoice)) {
+      this.onGoingProcessProvider.clear();
+      let msg = this.translate.instant(
+        'Purchases with this cryptocurrency are not enabled'
+      );
+      this.showErrorInfoSheet(msg, null, true);
+      return;
+    }
+
+    // Sometimes API does not return this element;
+    invoice['minerFees'][COIN]['totalFee'] =
+      invoice.minerFees[COIN].totalFee || 0;
+
+    this.message = this.replaceParametersProvider.replace(
+      this.translate.instant(`{{amountUnitStr}} Gift Card`),
+      { amountUnitStr: this.amountUnitStr }
     );
 
     this.onGoingProcessProvider.clear();
 
     // Save in memory
-    this.tx = ctxp;
+    this.tx = {};
     this.invoiceId = invoice.id;
 
     const now = moment().unix() * 1000;
 
     this.tx.giftData = {
-      currency: dataSrc.currency,
+      currency: this.purchaseParams.currency,
       date: now,
-      amount: dataSrc.amount,
-      uuid: dataSrc.uuid,
+      amount: this.purchaseParams.amount,
+      uuid: this.purchaseParams.uuid,
       accessKey,
       invoiceId: invoice.id,
       invoiceUrl: invoice.url,
@@ -455,22 +839,13 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
       name: this.cardConfig.name
     };
     this.totalAmountStr = this.txFormatProvider.formatAmountStr(
-      wallet.coin,
-      ctxp.amount
+      COIN.toLowerCase(),
+      amountSat
     );
 
-    // Warn: fee too high
-    this.checkFeeHigh(
-      Number(parsedAmount.amountSat),
-      Number(invoiceFeeSat) + Number(ctxp.fee)
-    );
+    this.setTotalAmount(COIN.toLowerCase());
 
-    this.setTotalAmount(
-      wallet,
-      parsedAmount.amountSat,
-      invoiceFeeSat,
-      ctxp.fee
-    );
+    this.logGiftCardPurchaseEvent(false, COIN, this.purchaseParams);
   }
 
   public async buyConfirm() {
@@ -484,9 +859,67 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
       ...this.tx.giftData,
       status: 'UNREDEEMED'
     });
-    return this.publishAndSign(this.wallet, this.tx)
-      .then(() => this.redeemGiftCard(this.tx.giftData))
-      .catch(async err => this.handlePurchaseError(err));
+    if (this.wallet) {
+      return this.publishAndSign(this.wallet, this.tx)
+        .then(() => {
+          this.redeemGiftCard(this.tx.giftData);
+          this.logGiftCardPurchaseEvent(
+            true,
+            this.wallet.coin.toUpperCase(),
+            this.tx.giftData
+          );
+        })
+        .catch(async err => this.handlePurchaseError(err));
+    } else {
+      return this.payWithCoinbaseAccount();
+    }
+  }
+
+  protected payWithCoinbaseAccount(code?): Promise<void> {
+    this.onGoingProcessProvider.set('payingWithCoinbase');
+    return this.coinbaseProvider
+      .payInvoice(
+        this.tx.giftData.invoiceId,
+        this.coinbaseAccount.currency.code,
+        code
+      )
+      .then(() => {
+        this.onGoingProcessProvider.clear();
+        this.redeemGiftCard(this.tx.giftData);
+        this.logGiftCardPurchaseEvent(
+          true,
+          this.coinbaseAccount.currency.code,
+          this.tx.giftData
+        );
+      })
+      .catch(err => {
+        this.onGoingProcessProvider.clear();
+        if (err == '2fa') {
+          const message = this.translate.instant('Enter 2-step verification');
+          const opts = {
+            type: 'number',
+            enableBackdropDismiss: false
+          };
+          this.popupProvider.ionicPrompt(null, message, opts).then(res => {
+            if (res === null) {
+              this.showErrorAndBack(
+                this.translate.instant('Missing 2-step verification')
+              );
+              return;
+            }
+            this.payWithCoinbaseAccount(res);
+          });
+        } else {
+          this.showErrorAndBack(err);
+        }
+      });
+  }
+
+  protected showErrorAndBack(err): void {
+    if (this.isCordova) this.slideButton.isConfirmed(false);
+    this.logger.error(err);
+    err = err.errors ? err.errors[0].message : err;
+    this.popupProvider.ionicAlert(this.translate.instant('Error'), err);
   }
 
   public async handlePurchaseError(err) {
@@ -494,7 +927,7 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
     await this.giftCardProvider.saveCard(this.tx.giftData, {
       remove: true
     });
-    await this.walletProvider.removeTx(this.wallet, this.tx);
+    await this.walletProvider.removeTx(this.wallet, this.tx).catch(() => {});
     const errorMessage = err && err.message;
     const canceledErrors = ['FINGERPRINT_CANCELLED', 'PASSWORD_CANCELLED'];
     if (canceledErrors.indexOf(errorMessage) !== -1) {
@@ -509,30 +942,90 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
     );
   }
 
-  public onWalletSelect(wallet): void {
-    this.wallet = wallet;
-    this.initialize(wallet).catch(() => {});
+  public async onWalletSelect(option) {
+    if (option.isCoinbaseAccount) {
+      this.wallet = null;
+      this.coinbaseAccount = option.accountSelected;
+      const email = this.coinbaseProvider.coinbaseData.user.email;
+      await this.initializeCoinbase(
+        option.accountSelected,
+        email
+      ).catch(() => {});
+    } else {
+      this.wallet = option;
+      this.coinbaseAccount = null;
+      this.isERCToken = this.currencyProvider.isERCToken(this.wallet.coin);
+      const email = await this.promptEmail();
+      await this.initialize(option, email).catch(() => {});
+    }
+  }
+
+  public async refreshCardConfig() {
+    this.logger.debug('Refreshing cardConfig...');
+    this.bitpayIdProvider.refreshUserInfo();
+    const cardMap = await this.giftCardProvider.getSupportedCardConfigMap(true);
+    const oldCardConfig = this.cardConfig;
+    this.cardConfig = cardMap[this.cardConfig.name] || oldCardConfig;
+    this.logger.debug('Refreshed cardConfig');
+    this.merchantProvider.refreshMerchants();
+  }
+
+  public async refreshCardConfigIfNeeded() {
+    const shouldSync = await this.giftCardProvider.shouldSyncGiftCardPurchasesWithBitPayId();
+    if (shouldSync) {
+      this.refreshCardConfig();
+    }
   }
 
   public showWallets(): void {
     this.isOpenSelector = true;
     let id = this.wallet ? this.wallet.credentials.walletId : null;
+
+    let coinbaseData = { user: [], availableAccounts: [] };
+    if (this.showCoinbase) {
+      const minFiatCurrency = { amount: this.amount, currency: this.currency };
+      coinbaseData = {
+        user: this.coinbaseProvider.coinbaseData.user,
+        availableAccounts: this.coinbaseProvider.getAvailableAccounts(
+          null,
+          minFiatCurrency
+        )
+      };
+    }
+
     const params = {
       wallets: this.wallets,
       selectedWalletId: id,
-      title: this.translate.instant('Buy from')
+      title: this.translate.instant('Buy from'),
+      coinbaseData
     };
     const walletSelector = this.actionSheetProvider.createWalletSelector(
       params
     );
     walletSelector.present();
-    walletSelector.onDidDismiss(wallet => {
-      if (!_.isEmpty(wallet)) this.onWalletSelect(wallet);
+    walletSelector.onDidDismiss(option => {
+      if (!_.isEmpty(option)) this.onWalletSelect(option);
       this.isOpenSelector = false;
     });
   }
 
   async finish(card: GiftCard) {
+    card.status === 'SUCCESS'
+      ? await this.showCard(card)
+      : await this.showStatusModalAndPrepCard(card);
+  }
+
+  async showCard(card: GiftCard) {
+    const modal = this.modalCtrl.create(CardDetailsPage, {
+      card,
+      showConfetti: card.status === 'SUCCESS',
+      showCloseButton: true
+    });
+    await modal.present();
+    await this.resetNav(card);
+  }
+
+  async showStatusModalAndPrepCard(card: GiftCard) {
     let finishComment: string;
     let cssClass: string;
     if (card.status == 'FAILURE') {
@@ -545,22 +1038,20 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
       finishComment = this.translate.instant('Your purchase is pending.');
       cssClass = 'warning';
     }
-    if (card.status == 'SUCCESS') {
-      finishComment = this.translate.instant(
-        'Gift card generated and ready to use.'
-      );
-    }
+
     let finishText = '';
     let modal = this.modalCtrl.create(
       FinishModalPage,
       { finishText, finishComment, cssClass },
       { showBackdrop: true, enableBackdropDismiss: false }
     );
-
     await modal.present();
+    await this.resetNav(card);
+    await this.navCtrl.push(CardDetailsPage, { card }, { animate: false });
+  }
 
+  async resetNav(card: GiftCard) {
     await this.navCtrl.popToRoot({ animate: false });
-    await this.navCtrl.parent.select(0);
 
     const numActiveCards = await this.getNumActiveCards();
     if (numActiveCards > 1) {
@@ -570,7 +1061,6 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
         { animate: false }
       );
     }
-    await this.navCtrl.push(CardDetailsPage, { card }, { animate: false });
   }
 
   async getNumActiveCards(): Promise<number> {
@@ -580,4 +1070,11 @@ export class ConfirmCardPurchasePage extends ConfirmPage {
     const currentGiftCards = allGiftCards.filter(c => !c.archived);
     return currentGiftCards.length;
   }
+}
+
+function lowercaseKeys(obj) {
+  return Object.keys(obj).reduce((destination, key) => {
+    destination[key.toLowerCase()] = obj[key];
+    return destination;
+  }, {});
 }

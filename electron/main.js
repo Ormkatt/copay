@@ -26,7 +26,12 @@ function createWindow() {
     minWidth: 400,
     maxWidth: 800,
     minHeight: 650,
-    show: false
+    show: false,
+    webPreferences: {
+      nodeIntegration: true,
+      worldSafeExecuteJavaScript: true,
+      enableRemoteModule: true
+    }
   });
 
   // and load the index.html of the app.
@@ -122,12 +127,25 @@ function createMenu() {
 }
 // The setAsDefaultProtocolClient only works on packaged versions of the application
 
-app.setAsDefaultProtocolClient('bitcoin');
-app.setAsDefaultProtocolClient('bitcoincash');
-app.setAsDefaultProtocolClient('bchtest');
-app.setAsDefaultProtocolClient(appConfig.name);
+if (!app.isDefaultProtocolClient('bitcoin'))
+  app.setAsDefaultProtocolClient('bitcoin');
+if (!app.isDefaultProtocolClient('bitcoincash'))
+  app.setAsDefaultProtocolClient('bitcoincash');
+if (!app.isDefaultProtocolClient('bchtest'))
+  app.setAsDefaultProtocolClient('bchtest');
+if (!app.isDefaultProtocolClient('ethereum'))
+  app.setAsDefaultProtocolClient('ethereum');
+if (!app.isDefaultProtocolClient('ripple'))
+  app.setAsDefaultProtocolClient('ripple');
+if (!app.isDefaultProtocolClient('dogecoin'))
+  app.setAsDefaultProtocolClient('dogecoin');
+if (!app.isDefaultProtocolClient('litecoin'))
+  app.setAsDefaultProtocolClient('litecoin');
+if (!app.isDefaultProtocolClient(appConfig.name))
+  app.setAsDefaultProtocolClient(appConfig.name);
+
 app.setVersion(appConfig.version);
-app.setName(appConfig.nameCase);
+app.name = appConfig.nameCase;
 
 const getHomeDirPath = platform => {
   switch (platform) {
@@ -193,7 +211,7 @@ app.on('activate', () => {
   }
 });
 
-app.on('open-url', function(e, url) {
+app.on('open-url', function (e, url) {
   e.preventDefault();
   deeplinkingUrl = url;
   // Wait for main window to be ready

@@ -1,24 +1,17 @@
-import { Component, VERSION, ViewChild } from '@angular/core';
+import { Component } from '@angular/core';
 import { TranslateService } from '@ngx-translate/core';
-import { ZXingScannerComponent } from '@zxing/ngx-scanner';
 import { Events, NavController, NavParams, Platform } from 'ionic-angular';
-import { Subscription } from 'rxjs';
 
 // providers
-import { ActionSheetProvider } from '../../providers/action-sheet/action-sheet';
-import { ExternalLinkProvider } from '../../providers/external-link/external-link';
+import { BwcErrorProvider } from '../../providers/bwc-error/bwc-error';
+import { ErrorsProvider } from '../../providers/errors/errors';
 import { IncomingDataProvider } from '../../providers/incoming-data/incoming-data';
 import { Logger } from '../../providers/logger/logger';
 import { PlatformProvider } from '../../providers/platform/platform';
 import { ScanProvider } from '../../providers/scan/scan';
 
-// pages
-import { PaperWalletPage } from '../paper-wallet/paper-wallet';
-import { AmountPage } from '../send/amount/amount';
-import { AddressbookAddPage } from '../settings/addressbook/add/add';
-
 import env from '../../environments';
-import { WalletTabsProvider } from '../wallet-tabs/wallet-tabs.provider';
+import { WalletConnectProvider } from '../../providers';
 
 @Component({
   selector: 'page-scan',
@@ -26,18 +19,6 @@ import { WalletTabsProvider } from '../wallet-tabs/wallet-tabs.provider';
   providers: [ScanProvider]
 })
 export class ScanPage {
-  ngVersion = VERSION.full;
-
-  @ViewChild('scanner')
-  scanner: ZXingScannerComponent;
-
-  hasCameras = false;
-  hasPermission: boolean;
-  qrResultString: string;
-
-  availableDevices: MediaDeviceInfo[];
-  selectedDevice: MediaDeviceInfo;
-
   public browserScanEnabled: boolean;
   private scannerIsAvailable: boolean;
   private scannerHasPermission: boolean;
@@ -51,14 +32,21 @@ export class ScanPage {
   public scannerStates;
   public canOpenSettings: boolean;
   public currentState: string;
-  public tabBarElement;
   public isCordova: boolean;
   public isCameraSelected: boolean;
   public fromAddressbook: boolean;
   public fromImport: boolean;
   public fromJoin: boolean;
   public fromSend: boolean;
-  private onResumeSubscription: Subscription;
+  public fromMultiSend: boolean;
+  public fromSelectInputs: boolean;
+  public fromEthMultisig: boolean;
+  public fromConfirm: boolean;
+  public fromWalletConnect: boolean;
+  public fromFooterMenu: boolean;
+  public canGoBack: boolean;
+  public tabBarElement;
+  public walletId: string;
 
   constructor(
     private navCtrl: NavController,
@@ -66,13 +54,13 @@ export class ScanPage {
     private platformProvider: PlatformProvider,
     private incomingDataProvider: IncomingDataProvider,
     private events: Events,
-    private externalLinkProvider: ExternalLinkProvider,
     private logger: Logger,
     public translate: TranslateService,
     private navParams: NavParams,
-    private walletTabsProvider: WalletTabsProvider,
     private platform: Platform,
-    private actionSheetProvider: ActionSheetProvider
+    private errorsProvider: ErrorsProvider,
+    private bwcErrorProvider: BwcErrorProvider,
+    private walletConnectProvider: WalletConnectProvider
   ) {
     this.isCameraSelected = false;
     this.browserScanEnabled = false;
@@ -91,117 +79,91 @@ export class ScanPage {
     this.scannerIsRestricted = false;
     this.canOpenSettings = false;
     this.isCordova = this.platformProvider.isCordova;
+    this.tabBarElement = document.querySelector('.tabbar.show-tabbar');
   }
 
   ionViewDidLoad() {
     this.logger.info('Loaded: ScanPage');
-    this.onResumeSubscription = this.platform.resume.subscribe(() => {
-      this.ionViewWillEnter();
-    });
+    this.navCtrl.swipeBackEnabled = false;
+    this.canGoBack = this.navCtrl.canGoBack();
   }
 
   ionViewWillLeave() {
+    this.navCtrl.swipeBackEnabled = true;
     this.events.unsubscribe('incomingDataError', this.incomingDataErrorHandler);
-    this.events.unsubscribe(
-      'finishIncomingDataMenuEvent',
-      this.finishIncomingDataMenuEventHandler
-    );
     this.events.unsubscribe(
       'scannerServiceInitialized',
       this.scannerServiceInitializedHandler
     );
-    if (!this.isCordova) {
-      this.scanner.resetScan();
-    } else {
-      this.cameraToggleActive = false;
-      this.lightActive = false;
-      this.scanProvider.frontCameraEnabled = false;
-      this.scanProvider.deactivate();
-    }
+
+    this.cameraToggleActive = false;
+    this.lightActive = false;
+    this.scanProvider.frontCameraEnabled = false;
+    this.scanProvider.deactivate();
     this.unregisterBackButtonAction && this.unregisterBackButtonAction();
+    this.tabBarElement.style.display = 'flex';
   }
 
-  ionViewWillEnter() {
+  async ionViewWillEnter() {
     this.initializeBackButtonHandler();
     this.fromAddressbook = this.navParams.data.fromAddressbook;
     this.fromImport = this.navParams.data.fromImport;
     this.fromJoin = this.navParams.data.fromJoin;
-    this.fromSend =
-      this.walletTabsProvider.getFromPage() &&
-      this.walletTabsProvider.getFromPage().fromSend;
+    this.fromSend = this.navParams.data.fromSend;
+    this.fromMultiSend = this.navParams.data.fromMultiSend;
+    this.fromSelectInputs = this.navParams.data.fromSelectInputs;
+    this.fromEthMultisig = this.navParams.data.fromEthMultisig;
+    this.fromConfirm = this.navParams.data.fromConfirm;
+    this.fromWalletConnect = this.navParams.data.fromWalletConnect;
+    this.fromFooterMenu = this.navParams.data.fromFooterMenu;
+    this.walletId = this.navParams.data.walletId;
+
+    if (this.fromWalletConnect) {
+      this.walletConnectProvider.resetConnectionData();
+      if (this.navParams.data.fromSettings) {
+        // workaround for removing wc settings page
+        setTimeout(() => {
+          this.navCtrl.remove(1, 1);
+        }, 500);
+      }
+    }
+
+    if (this.canGoBack && this.tabBarElement)
+      this.tabBarElement.style.display = 'none';
 
     if (!env.activateScanner) {
-      // test scanner visibility in E2E mode
-      this.selectedDevice = true as any;
-      this.hasPermission = true;
+      this.logger.debug('Scanner page: env.activateScanner = false');
       return;
     }
 
     this.events.subscribe('incomingDataError', this.incomingDataErrorHandler);
-
-    this.events.subscribe(
-      'finishIncomingDataMenuEvent',
-      this.finishIncomingDataMenuEventHandler
-    );
-
-    if (!this.isCordova) {
-      if (!this.isCameraSelected) {
-        this.loadCamera();
-      } else {
-        this.scanner.startScan(this.selectedDevice);
-      }
-    } else {
-      // try initializing and refreshing status any time the view is entered
-      if (this.scannerHasPermission) {
-        this.activate();
-      } else {
-        if (!this.scanProvider.isInitialized()) {
-          this.scanProvider.gentleInitialize().then(() => {
-            this.authorize();
-          });
-        } else {
-          this.authorize();
-        }
-      }
-      this.events.subscribe(
-        'scannerServiceInitialized',
-        this.scannerServiceInitializedHandler
-      );
-    }
+    this.initializeScanner();
   }
 
-  ngOnDestroy() {
-    this.onResumeSubscription.unsubscribe();
+  private initializeScanner() {
+    // try initializing and refreshing status any time the view is entered
+    if (this.scannerHasPermission) {
+      this.logger.debug('scannerHasPermission: true');
+      this.activate();
+    } else {
+      this.logger.debug('scannerHasPermission: false');
+      if (!this.scanProvider.isInitialized()) {
+        this.logger.debug('Scanner trying to initialize');
+        this.scanProvider.gentleInitialize().then(() => {
+          this.authorize();
+        });
+      } else {
+        this.authorize();
+      }
+    }
+    this.events.subscribe(
+      'scannerServiceInitialized',
+      this.scannerServiceInitializedHandler
+    );
   }
 
   private incomingDataErrorHandler: any = err => {
     this.showErrorInfoSheet(err);
-  };
-
-  private finishIncomingDataMenuEventHandler: any = data => {
-    if (!this.isCordova) {
-      this.scanner.resetScan();
-    }
-    switch (data.redirTo) {
-      case 'AmountPage':
-        this.sendPaymentToAddress(data.value, data.coin);
-        break;
-      case 'AddressBookPage':
-        this.addToAddressBook(data.value);
-        break;
-      case 'OpenExternalLink':
-        this.goToUrl(data.value);
-        break;
-      case 'PaperWalletPage':
-        this.scanPaperWallet(data.value);
-        break;
-      default:
-        if (this.isCordova) {
-          this.activate();
-        } else if (this.isCameraSelected) {
-          this.scanner.startScan(this.selectedDevice);
-        }
-    }
   };
 
   private scannerServiceInitializedHandler: any = () => {
@@ -213,59 +175,23 @@ export class ScanPage {
 
   private showErrorInfoSheet(error: Error | string, title?: string): void {
     let infoSheetTitle = title ? title : this.translate.instant('Error');
-    const errorInfoSheet = this.actionSheetProvider.createInfoSheet(
-      'default-error',
-      { msg: error, title: infoSheetTitle }
-    );
-    errorInfoSheet.present();
-    errorInfoSheet.onDidDismiss(() => {
-      if (this.isCordova) {
+    this.errorsProvider.showDefaultError(
+      this.bwcErrorProvider.msg(error),
+      infoSheetTitle,
+      () => {
         this.activate();
-      } else if (this.isCameraSelected) {
-        this.scanner.startScan(this.selectedDevice);
       }
-    });
+    );
   }
 
   private initializeBackButtonHandler(): void {
+    // This event is only used within Cordova apps running on Android and
+    // Windows platforms. This event is not fired on iOS since iOS doesn't come with a hardware back button
     this.unregisterBackButtonAction = this.platform.registerBackButtonAction(
       () => {
-        this.close();
+        this.closeCam();
       }
     );
-  }
-
-  public loadCamera() {
-    this.scanner.camerasFound.subscribe((devices: MediaDeviceInfo[]) => {
-      this.hasCameras = true;
-      this.availableDevices = devices;
-      this.onDeviceSelectChange();
-    });
-
-    this.scanner.camerasNotFound.subscribe(() => {
-      this.logger.error(
-        'An error has occurred when trying to enumerate your video-stream-enabled devices.'
-      );
-    });
-    this.scanner.askForPermission().then((answer: boolean) => {
-      this.hasPermission = answer;
-    });
-  }
-
-  private goToUrl(url: string): void {
-    this.externalLinkProvider.open(url);
-  }
-
-  private sendPaymentToAddress(bitcoinAddress: string, coin: string): void {
-    this.navCtrl.push(AmountPage, { toAddress: bitcoinAddress, coin });
-  }
-
-  private addToAddressBook(bitcoinAddress: string): void {
-    this.navCtrl.push(AddressbookAddPage, { addressbookEntry: bitcoinAddress });
-  }
-
-  private scanPaperWallet(privateKey: string) {
-    this.navCtrl.push(PaperWalletPage, { privateKey });
   }
 
   private updateCapabilities(): void {
@@ -326,21 +252,51 @@ export class ScanPage {
   }
 
   private handleSuccessfulScan(contents: string): void {
+    if (this.canGoBack) this.navCtrl.pop({ animate: false });
+
+    if (this.incomingDataProvider.isValidBitPayInvoice(contents)) {
+      this.incomingDataProvider.handleUnlock(contents);
+      return;
+    }
+
     if (this.fromAddressbook) {
       this.events.publish('Local/AddressScan', { value: contents });
-      this.navCtrl.pop();
     } else if (this.fromImport) {
       this.events.publish('Local/BackupScan', { value: contents });
-      this.navCtrl.pop();
     } else if (this.fromJoin) {
-      this.events.publish('Local/InvitationScan', { value: contents });
-      this.navCtrl.pop();
+      this.events.publish('Local/JoinScan', { value: contents });
     } else if (this.fromSend) {
       this.events.publish('Local/AddressScan', { value: contents });
-      this.close();
+    } else if (this.fromMultiSend) {
+      this.events.publish('Local/AddressScanMultiSend', { value: contents });
+    } else if (this.fromSelectInputs) {
+      this.events.publish('Local/AddressScanSelectInputs', { value: contents });
+    } else if (this.fromEthMultisig) {
+      this.events.publish('Local/AddressScanEthMultisig', { value: contents });
+    } else if (this.fromConfirm) {
+      this.events.publish('Local/TagScan', { value: contents });
+    } else if (this.fromWalletConnect) {
+      if (this.navParams.data.updateURI) {
+        this.events.publish('Local/UriScan', { value: contents });
+      } else {
+        const redirParams = {
+          fromWalletConnect: true,
+          fromSettings: this.navParams.data.fromSettings,
+          force: true,
+          walletId: this.walletId
+        };
+        this.incomingDataProvider.redir(contents, redirParams);
+      }
+    } else if (this.fromFooterMenu) {
+      const redirParams = {
+        activePage: 'ScanPage',
+        fromFooterMenu: this.fromFooterMenu
+      };
+      this.incomingDataProvider.redir(contents, redirParams);
     } else {
-      const redirParms = { activePage: 'ScanPage' };
-      this.incomingDataProvider.redir(contents, redirParms);
+      this.navCtrl.parent.select(1); // Workaround to avoid keep camera active
+      const redirParams = { activePage: 'ScanPage' };
+      this.incomingDataProvider.redir(contents, redirParams);
     }
   }
 
@@ -365,7 +321,7 @@ export class ScanPage {
         this.lightActive = resp;
       })
       .catch(error => {
-        this.logger.warn('scanner error: ' + error);
+        this.logger.warn('scanner error: ' + JSON.stringify(error));
       });
   }
 
@@ -377,32 +333,25 @@ export class ScanPage {
         this.lightActive = false;
       })
       .catch(error => {
-        this.logger.warn('scanner error: ' + error);
+        this.logger.warn('scanner error: ' + JSON.stringify(error));
       });
   }
 
-  handleQrCodeResult(resultString: string) {
-    this.scanner.resetScan();
-    setTimeout(() => {
-      this.handleSuccessfulScan(resultString);
-    }, 0);
+  public closeCam() {
+    this.navCtrl.pop({ animate: false });
   }
 
-  onDeviceSelectChange() {
-    if (!this.isCameraSelected) {
-      for (const device of this.availableDevices) {
-        if (device.kind == 'videoinput') {
-          this.selectedDevice = this.scanner.getDeviceById(device.deviceId);
-          this.isCameraSelected = true;
-          break;
-        }
+  public goToWalletConnectPage() {
+    let nextView = {
+      name: 'WalletConnectPage',
+      params: {
+        fromSettings: this.navParams.data.fromSettings,
+        fromWalletConnect: this.fromWalletConnect,
+        walletId: this.walletId,
+        force: true,
+        pasteURL: true
       }
-    }
-  }
-
-  public close() {
-    this.walletTabsProvider.getTabNav()
-      ? this.events.publish('ExitScan')
-      : this.navCtrl.parent.select(0);
+    };
+    this.events.publish('IncomingDataRedir', nextView);
   }
 }

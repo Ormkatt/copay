@@ -2,12 +2,15 @@ import { Component } from '@angular/core';
 import { NavController } from 'ionic-angular';
 import { Logger } from '../../../providers/logger/logger';
 
+// native
+import { SplashScreen } from '@ionic-native/splash-screen';
+
 // Providers
+import { ActionSheetProvider } from '../../../providers/action-sheet/action-sheet';
 import { ConfigProvider } from '../../../providers/config/config';
 import { PersistenceProvider } from '../../../providers/persistence/persistence';
-import { ProfileProvider } from '../../../providers/profile/profile';
+import { PlatformProvider } from '../../../providers/platform/platform';
 import { RateProvider } from '../../../providers/rate/rate';
-import { WalletProvider } from '../../../providers/wallet/wallet';
 
 import * as _ from 'lodash';
 
@@ -32,9 +35,10 @@ export class AltCurrencyPage {
     private logger: Logger,
     private navCtrl: NavController,
     private rate: RateProvider,
-    private profileProvider: ProfileProvider,
+    private splashScreen: SplashScreen,
+    private platformProvider: PlatformProvider,
     private persistenceProvider: PersistenceProvider,
-    private walletProvider: WalletProvider
+    private actionSheetProvider: ActionSheetProvider
   ) {
     this.completeAlternativeList = [];
     this.altCurrencyList = [];
@@ -44,6 +48,36 @@ export class AltCurrencyPage {
       },
       {
         isoCode: 'BTC'
+      },
+      {
+        isoCode: 'BCH'
+      },
+      {
+        isoCode: 'ETH'
+      },
+      {
+        isoCode: 'XRP'
+      },
+      {
+        isoCode: 'USDC'
+      },
+      {
+        isoCode: 'GUSD'
+      },
+      {
+        isoCode: 'PAX'
+      },
+      {
+        isoCode: 'BUSD'
+      },
+      {
+        isoCode: 'DAI'
+      },
+      {
+        isoCode: 'WBTC'
+      },
+      {
+        isoCode: 'SHIB'
       }
     ];
   }
@@ -94,6 +128,9 @@ export class AltCurrencyPage {
         this.PAGE_COUNTER * this.SHOW_LIMIT
       );
       this.PAGE_COUNTER++;
+
+      if (this.searchedAltCurrency) this.findCurrency();
+
       loading.complete();
     }, 300);
   }
@@ -111,13 +148,45 @@ export class AltCurrencyPage {
         }
       }
     };
+    if (
+      _.some(this.completeAlternativeList, ['isoCode', newAltCurrency.isoCode])
+    ) {
+      this.configProvider.set(opts);
+      this.saveLastUsed(newAltCurrency);
+      this.navCtrl.popToRoot().then(() => {
+        this.reload();
+      });
+    } else {
+      // To stop showing currencies that are no longer supported
+      this.showErrorAndRemoveAltCurrency(newAltCurrency);
+    }
+  }
 
-    this.configProvider.set(opts);
-    this.saveLastUsed(newAltCurrency);
-    this.walletProvider.updateRemotePreferences(
-      this.profileProvider.getWallets()
+  private showErrorAndRemoveAltCurrency(altCurrency): void {
+    const params = {
+      name: altCurrency.name,
+      isoCode: altCurrency.isoCode,
+      error: true
+    };
+    const infoSheet = this.actionSheetProvider.createInfoSheet(
+      'unsupported-alt-currency',
+      params
     );
-    this.navCtrl.pop();
+    infoSheet.present();
+    infoSheet.onDidDismiss(() => {
+      this.lastUsedAltCurrencyList = _.reject(this.lastUsedAltCurrencyList, [
+        'isoCode',
+        altCurrency.isoCode
+      ]);
+      this.persistenceProvider
+        .setLastCurrencyUsed(JSON.stringify(this.lastUsedAltCurrencyList))
+        .then(() => {});
+    });
+  }
+
+  private reload(): void {
+    window.location.reload();
+    if (this.platformProvider.isCordova) this.splashScreen.show();
   }
 
   private saveLastUsed(newAltCurrency): void {
@@ -132,13 +201,13 @@ export class AltCurrencyPage {
       .then(() => {});
   }
 
-  public findCurrency(searchedAltCurrency: string): void {
+  public findCurrency(): void {
     this.altCurrencyList = _.filter(this.completeAlternativeList, item => {
       var val = item.name;
       var val2 = item.isoCode;
       return (
-        _.includes(val.toLowerCase(), searchedAltCurrency.toLowerCase()) ||
-        _.includes(val2.toLowerCase(), searchedAltCurrency.toLowerCase())
+        _.includes(val.toLowerCase(), this.searchedAltCurrency.toLowerCase()) ||
+        _.includes(val2.toLowerCase(), this.searchedAltCurrency.toLowerCase())
       );
     });
   }

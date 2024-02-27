@@ -2,10 +2,16 @@ import { HttpClientModule } from '@angular/common/http';
 import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
 import { IonicImageLoader } from 'ionic-image-loader';
 import { MarkdownModule } from 'ngx-markdown';
+import { NgxTextOverflowClampModule } from 'ngx-text-overflow-clamp';
 
-import { ErrorHandler, NgModule } from '@angular/core';
+import { CUSTOM_ELEMENTS_SCHEMA, ErrorHandler, NgModule } from '@angular/core';
 import { BrowserModule } from '@angular/platform-browser';
-import { IonicApp, IonicErrorHandler, IonicModule } from 'ionic-angular';
+import {
+  Config,
+  IonicApp,
+  IonicErrorHandler,
+  IonicModule
+} from 'ionic-angular';
 
 /* Modules */
 import {
@@ -16,7 +22,6 @@ import {
   TranslateModule,
   TranslateParser
 } from '@ngx-translate/core';
-import { ZXingScannerModule } from '@zxing/ngx-scanner';
 import { MomentModule } from 'angular2-moment';
 import { NgxBarcodeModule } from 'ngx-barcode';
 import { NgxQRCodeModule } from 'ngx-qrcode2';
@@ -34,6 +39,7 @@ import { KeysPipe } from '../pipes/keys';
 import { OrderByPipe } from '../pipes/order-by';
 import { SatToFiatPipe } from '../pipes/satToFiat';
 import { SatToUnitPipe } from '../pipes/satToUnit';
+import { ShortenedAddressPipe } from '../pipes/shortened-address';
 
 /* Directives */
 import { Animate } from '../directives/animate/animate';
@@ -41,10 +47,12 @@ import { CopyToClipboard } from '../directives/copy-to-clipboard/copy-to-clipboa
 import { ExternalizeLinks } from '../directives/externalize-links/externalize-links';
 import { FixedScrollBgColor } from '../directives/fixed-scroll-bg-color/fixed-scroll-bg-color';
 import { IonContentBackgroundColor } from '../directives/ion-content-background-color/ion-content-background-color';
+import { IonMask } from '../directives/ion-mask/ion-mask';
 import { LongPress } from '../directives/long-press/long-press';
 import { NavbarBg } from '../directives/navbar-bg/navbar-bg';
 import { NoLowFee } from '../directives/no-low-fee/no-low-fee';
 import { RevealAtScrollPosition } from '../directives/reveal-at-scroll-pos/reveal-at-scroll-pos';
+import { ScrolledIntoView } from '../directives/scrolled-into-view/scrolled-into-view';
 import { WideHeaderBarButton } from '../pages/templates/wide-header-page/wide-header-bar-button';
 
 /* Components */
@@ -53,6 +61,10 @@ import { COMPONENTS } from '../components/components';
 /* Providers */
 import { LanguageLoader } from '../providers/language-loader/language-loader';
 import { ProvidersModule } from '../providers/providers.module';
+
+/* Modal Transitions */
+import { ModalTranslateEnterTransition } from '../components/notification-component/transitions/on-enter-translate.transition';
+import { ModalTranslateLeaveTransition } from '../components/notification-component/transitions/on-leave-translate.transition';
 
 export function translateParserFactory() {
   return new InterpolatedTranslateParser();
@@ -79,11 +91,13 @@ export class MyMissingTranslationHandler implements MissingTranslationHandler {
     ExternalizeLinks,
     FixedScrollBgColor,
     IonContentBackgroundColor,
+    IonMask,
     LongPress,
     NavbarBg,
     NoLowFee,
     Animate,
     RevealAtScrollPosition,
+    ScrolledIntoView,
     WideHeaderBarButton,
     /* Pipes */
     FiatToUnitPipe,
@@ -91,16 +105,19 @@ export class MyMissingTranslationHandler implements MissingTranslationHandler {
     KeysPipe,
     SatToUnitPipe,
     SatToFiatPipe,
-    OrderByPipe
+    OrderByPipe,
+    ShortenedAddressPipe
   ],
   imports: [
     IonicModule.forRoot(CopayApp, {
       animate: env.enableAnimations,
       tabsHideOnSubPages: true,
+      scrollPadding: false,
       tabsPlacement: 'bottom',
       backButtonIcon: 'arrow-round-back',
       backButtonText: ''
     }),
+    NgxTextOverflowClampModule,
     IonicImageLoader.forRoot(),
     BrowserModule,
     BrowserAnimationsModule,
@@ -120,8 +137,7 @@ export class MyMissingTranslationHandler implements MissingTranslationHandler {
         provide: TranslateLoader,
         useClass: LanguageLoader
       }
-    }),
-    ZXingScannerModule.forRoot()
+    })
   ],
   bootstrap: [IonicApp],
   entryComponents: [CopayApp, ...PAGES, ...COMPONENTS],
@@ -131,6 +147,22 @@ export class MyMissingTranslationHandler implements MissingTranslationHandler {
       useClass: IonicErrorHandler
     },
     FormatCurrencyPipe
-  ]
+  ],
+  schemas: [CUSTOM_ELEMENTS_SCHEMA]
 })
-export class AppModule {}
+export class AppModule {
+  constructor(public config: Config) {
+    this.setCustomTransitions();
+  }
+
+  private setCustomTransitions() {
+    this.config.setTransition(
+      'modal-translate-up-enter',
+      ModalTranslateEnterTransition
+    );
+    this.config.setTransition(
+      'modal-translate-up-leave',
+      ModalTranslateLeaveTransition
+    );
+  }
+}

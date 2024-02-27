@@ -1,4 +1,5 @@
-page-settings {
+page-settings,
+page-about {
   ion-label,
   .item-title {
     white-space: normal;
@@ -11,9 +12,10 @@ page-settings {
     -webkit-box-orient: vertical;
   }
 
-  .icon-services {
-    width: 25px;
-    height: 25px;
+  .subtitle {
+    color: #aaaeb6;
+    font-size: 13px;
+    margin-top: 5px;
   }
 
   .icon-card {
@@ -21,41 +23,87 @@ page-settings {
     height: 25px;
   }
 
-  .settings-icon.item-img {
-    opacity: 0.5;
+  .icon-bitpay-id {
+    font-family: 'Heebo-Medium' !important;
+    background: #1a2c57;
+    color: #9faff5;
+    font-size: 26px;
+    border-radius: 50%;
+    width: 60px;
+    height: 60px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
   }
 
-  .settings-list {
-    .item {
-      border: 0;
+  .bp-list {
+    .main-label {
+      font-weight: 400;
+      .bitpay-name {
+        font-weight: bold;
+      }
+      .bitpay-email {
+        font-weight: 200;
+      }
     }
-
-    button.item {
-      padding: 12px 0 12px 22px;
-      border-bottom: 0;
-
-      .item-inner {
-        margin-left: 8px;
-
-        ion-note.note {
-          background: #f4f5fb;
-          color: #565d6d;
-          font-weight: 300;
-          padding: 6px 10px;
-          border-radius: 4px;
+    ion-item-divider {
+      margin-top: 0px;
+      padding: 12.5px 0px 12.5px 20px;
+      background: #f8f8f9;
+    }
+    ion-icon.item-img.icon {
+      &.icon-md.item-icon,
+      &.icon-ios.item-icon {
+        padding: 14.5px;
+        font-size: 20px;
+        &.icon-settings {
+          opacity: 0.5;
+        }
+        &.icon-login {
+          font-size: 60px;
+          padding-left: 15px;
+          img {
+            width: 60px;
+            height: 60px;
+          }
+        }
+        &.ionic-icon {
+          font-size: 25px;
+          color: #cdd1d7;
+          opacity: 1;
+        }
+        img {
+          width: 20px;
+          height: 20px;
         }
       }
-
-      &:last-child {
-        &:after {
-          width: 100%;
-        }
-      }
+    }
+    ion-note.note {
+      background: #f4f5fb;
+      color: #565d6d;
+      font-weight: 300;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 14px;
     }
   }
 
-  .icon-services {
-    box-shadow: 0px 2px 6px 0px rgba(0, 0, 0, 0.2);
-    padding: 0rem;
+  .count-note {
+    min-width: 85px;
+    text-align: center;
+  }
+
+  .create-button {
+    background: white;
+    color: color($colors, primary);
+    margin-left: -12px;
+    text-align: center;
+  }
+
+  .ion-md-eye:before,
+  .ion-ios-color-palette:before,
+  .ion-md-list-box:before {
+    width: 20px;
+    height: 20px;
   }
 }

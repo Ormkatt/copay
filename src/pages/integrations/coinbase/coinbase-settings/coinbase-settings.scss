@@ -1,17 +1,12 @@
 page-coinbase-settings {
-  .wide-header__title.toolbar {
-    padding-bottom: 10px;
+  .email-account {
+    font-size: 12px;
   }
-  .wide-header__title {
-    padding-left: 0;
+  .connect-button {
+    padding-top: 40px;
   }
-  ion-spinner {
-    position: fixed;
-    top: 40%;
-    left: 50%;
-    margin-left: -1em;
-    * {
-      stroke: #0667d0 !important;
-    }
+  .missing-credentials {
+    padding-top: 50px;
+    text-align: center;
   }
 }

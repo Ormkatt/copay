@@ -2,13 +2,15 @@ import { async, ComponentFixture, TestBed } from '@angular/core/testing';
 import { TestUtils } from '../../../test';
 
 import { RateProvider } from '../../../providers/rate/rate';
-import { Coin } from '../../../providers/wallet/wallet';
 import { AmountPage } from './amount';
 
 describe('AmountPage', () => {
+  // TODO: Improve Amount page unit tests
   let fixture: ComponentFixture<AmountPage>;
   let instance;
   let testBed: typeof TestBed;
+  let rateProvider: RateProvider;
+  let toFiatSpy;
 
   const wallet = {
     coin: 'bch',
@@ -17,7 +19,8 @@ describe('AmountPage', () => {
       totalBalanceSat: 100000000,
       availableBalanceStr: '1.000000',
       availableBalanceSat: 100000000
-    }
+    },
+    credentials: {}
   };
 
   beforeEach(async(() => {
@@ -26,6 +29,9 @@ describe('AmountPage', () => {
       instance = testEnv.instance;
       testBed = testEnv.testBed;
       fixture.detectChanges();
+      rateProvider = testBed.get(RateProvider);
+      spyOn(rateProvider, 'getRate').and.returnValue(1000000);
+      toFiatSpy = spyOn(rateProvider, 'toFiat').and.returnValue(1000000);
     });
   }));
   afterEach(() => {
@@ -47,18 +53,16 @@ describe('AmountPage', () => {
       instance.ionViewDidLoad();
       instance.fiatCode = 'USD';
       instance.unitIndex = 1;
-      const rateProvider: RateProvider = testBed.get(RateProvider);
-      spyOn(rateProvider, 'getRate').and.returnValue(1000000);
-      const spy = spyOn(rateProvider, 'toFiat').and.returnValue(1000000);
+      instance.unitToSatoshi = 1e8;
       instance.sendMax();
-      expect(spy).toHaveBeenCalledWith(100000000, 'USD', Coin.BCH);
+      expect(toFiatSpy).toHaveBeenCalledWith(100000000, 'USD', 'bch');
       expect(instance.expression).toBe('1000000.00');
     });
 
     it('should skip rate calculations and go directly to confirm if not within wallet', () => {
-      const spy = spyOn(instance, 'finish');
+      const finishSpy = spyOn(instance, 'finish');
       instance.sendMax();
-      expect(spy).toHaveBeenCalled();
+      expect(finishSpy).toHaveBeenCalled();
     });
   });
 });

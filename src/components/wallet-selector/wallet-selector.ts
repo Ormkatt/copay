@@ -1,34 +1,54 @@
 import { Component } from '@angular/core';
+import * as _ from 'lodash';
 import { ActionSheetParent } from '../action-sheet/action-sheet-parent';
-
 @Component({
   selector: 'wallet-selector',
   templateUrl: 'wallet-selector.html'
 })
 export class WalletSelectorComponent extends ActionSheetParent {
-  public wallets;
-  public walletsBtc;
-  public walletsBch;
+  public walletsByKeys: any[];
   public title: string;
   public selectedWalletId: string;
+  public coinbaseData;
+  public fromWalletConnect: boolean;
+  public linkEthTokens: boolean;
+  public token;
+  public context: string;
 
   constructor() {
     super();
   }
 
   ngOnInit() {
-    this.wallets = this.params.wallets;
     this.title = this.params.title;
     this.selectedWalletId = this.params.selectedWalletId;
+    this.coinbaseData = this.params.coinbaseData;
+    this.fromWalletConnect = this.params.fromWalletConnect;
+    this.linkEthTokens = this.params.linkEthTokens;
+    this.token = this.params.token;
+    this.context = this.params.context;
     this.separateWallets();
   }
 
   private separateWallets(): void {
-    this.walletsBtc = this.wallets.filter(wallet => wallet.coin === 'btc');
-    this.walletsBch = this.wallets.filter(wallet => wallet.coin === 'bch');
+    const wallets = this.params.wallets;
+    this.walletsByKeys = _.values(_.groupBy(wallets, 'keyId'));
   }
 
-  public optionClicked(option): void {
-    this.dismiss(option);
+  public optionClicked(option, isCoinbaseAccount?: boolean): void {
+    if (this.context === 'topup' && ['xrp'].includes(option.coin)) {
+      return;
+    }
+    if (!isCoinbaseAccount) this.dismiss(option);
+    else {
+      const optionClicked = {
+        accountSelected: _.find(
+          this.coinbaseData.availableAccounts,
+          ac => ac.id == option
+        ),
+        isCoinbaseAccount
+      };
+      this.dismiss(optionClicked);
+    }
   }
 }

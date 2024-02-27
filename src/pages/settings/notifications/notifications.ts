@@ -22,6 +22,7 @@ import { EmailValidator } from '../../../validators/email';
 })
 export class NotificationsPage {
   public emailForm: FormGroup;
+  public isCopay: boolean;
 
   public appName: string;
   public usePushNotifications: boolean;
@@ -31,6 +32,8 @@ export class NotificationsPage {
   public pushNotifications: boolean;
   public desktopNotifications: boolean;
   public confirmedTxsNotifications: boolean;
+  public productsUpdates: boolean;
+  public offersAndPromotions: boolean;
 
   public emailNotifications: boolean;
 
@@ -56,6 +59,7 @@ export class NotificationsPage {
         ])
       ]
     });
+    this.isCopay = this.appProvider.info.name == 'copay' ? true : false;
   }
 
   ionViewDidLoad() {
@@ -71,10 +75,20 @@ export class NotificationsPage {
       this.platformProvider.isIOS && this.platformProvider.isCordova;
     this.isElectron = this.platformProvider.isElectron;
 
-    this.pushNotifications = config.pushNotificationsEnabled;
-    this.desktopNotifications = config.desktopNotificationsEnabled;
+    this.pushNotifications = config.pushNotifications
+      ? config.pushNotifications.enabled
+      : false;
+    this.desktopNotifications = config.desktopNotifications
+      ? config.desktopNotifications.enabled
+      : false;
     this.confirmedTxsNotifications = config.confirmedTxsNotifications
       ? config.confirmedTxsNotifications.enabled
+      : false;
+    this.productsUpdates = config.productsUpdates
+      ? config.productsUpdates.enabled
+      : false;
+    this.offersAndPromotions = config.offersAndPromotions
+      ? config.offersAndPromotions.enabled
       : false;
 
     this.emailForm.setValue({
@@ -88,18 +102,18 @@ export class NotificationsPage {
 
   public pushNotificationsChange() {
     const opts = {
-      pushNotificationsEnabled: this.pushNotifications
+      pushNotifications: { enabled: this.pushNotifications }
     };
 
     this.configProvider.set(opts);
 
-    if (opts.pushNotificationsEnabled) this.pushProvider.init();
+    if (opts.pushNotifications.enabled) this.pushProvider.init();
     else this.pushProvider.disable();
   }
 
   public desktopNotificationChange() {
     const opts = {
-      desktopNotificationsEnabled: this.desktopNotifications
+      desktopNotifications: { enabled: this.desktopNotifications }
     };
 
     this.configProvider.set(opts);
@@ -112,6 +126,31 @@ export class NotificationsPage {
       }
     };
     this.configProvider.set(opts);
+  }
+
+  public productsUpdatesChange() {
+    const opts = {
+      productsUpdates: {
+        enabled: this.productsUpdates
+      }
+    };
+    this.configProvider.set(opts);
+    this.updateTopic(this.productsUpdates, 'productsupdates');
+  }
+
+  public offersAndPromotionsChange() {
+    const opts = {
+      offersAndPromotions: {
+        enabled: this.offersAndPromotions
+      }
+    };
+    this.configProvider.set(opts);
+    this.updateTopic(this.offersAndPromotions, 'offersandpromotions');
+  }
+
+  public updateTopic(enabled, topic) {
+    if (enabled) this.pushProvider.subscribeToTopic(topic);
+    else this.pushProvider.unsubscribeFromTopic(topic);
   }
 
   public emailNotificationsChange() {
@@ -135,7 +174,7 @@ export class NotificationsPage {
     const url = 'https://bitpay.com/about/privacy';
     const optIn = true;
     const title = null;
-    const message = this.translate.instant('View Privacy Policy');
+    const message = this.translate.instant('View Privacy Notice');
     const okText = this.translate.instant('Open');
     const cancelText = this.translate.instant('Go Back');
     this.externalLinkProvider.open(

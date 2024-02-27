@@ -4,8 +4,9 @@ import {
   ElementRef,
   EventEmitter,
   Input,
+  OnChanges,
   Output,
-  Renderer,
+  Renderer2,
   ViewChild
 } from '@angular/core';
 import { NavController, NavParams } from 'ionic-angular';
@@ -14,12 +15,15 @@ import { NavController, NavParams } from 'ionic-angular';
   selector: 'page-slide-to-accept',
   templateUrl: 'slide-to-accept.html'
 })
-export class SlideToAcceptPage implements AfterViewInit {
+export class SlideToAcceptPage implements AfterViewInit, OnChanges {
   @Output()
   slideDone = new EventEmitter<boolean>();
 
   @Input()
   buttonText: string;
+
+  @Input()
+  isDogecoin: boolean;
 
   @Input()
   set disabled(disabled: boolean) {
@@ -36,10 +40,29 @@ export class SlideToAcceptPage implements AfterViewInit {
     return this.done;
   }
 
+  ngOnChanges(changes) {
+    if (
+      changes &&
+      changes.disabled &&
+      changes.disabled.previousValue === true &&
+      changes.disabled.firstChange === false
+    ) {
+      this.animation = false;
+      setTimeout(() => {
+        this.toggleAnimation();
+      }, 300);
+    }
+  }
+
   @ViewChild('slideButton', { read: ElementRef })
   private buttonElement: ElementRef;
   @ViewChild('slideButtonContainer')
   private containerElement: ElementRef;
+
+  @ViewChild('slideText', { read: ElementRef })
+  private textElement: ElementRef;
+  @ViewChild('slideArrow', { read: ElementRef })
+  private arrowElement: ElementRef;
 
   private isPressed: boolean = false;
   private clickPosition;
@@ -47,6 +70,8 @@ export class SlideToAcceptPage implements AfterViewInit {
   private delta: number = 8;
   private htmlButtonElem;
   private htmlContainerElem;
+  private htmlTextElem;
+  private htmlArrowElem;
   private containerWidth: number;
   private origin;
   private done: boolean = false;
@@ -58,15 +83,15 @@ export class SlideToAcceptPage implements AfterViewInit {
   constructor(
     public navCtrl: NavController,
     public navParams: NavParams,
-    public renderer: Renderer
-  ) {
-    this.animation = false;
-  }
+    public renderer: Renderer2
+  ) {}
 
   ngAfterViewInit() {
     setTimeout(() => {
       this.htmlButtonElem = this.buttonElement.nativeElement;
       this.htmlContainerElem = this.containerElement.nativeElement;
+      this.htmlTextElem = this.textElement.nativeElement;
+      this.htmlArrowElem = this.arrowElement.nativeElement;
       let buttonConstraints = this.htmlButtonElem.getBoundingClientRect();
       this.origin = {
         left: buttonConstraints.left,
@@ -97,25 +122,31 @@ export class SlideToAcceptPage implements AfterViewInit {
         transform: 'translateX(' + xDisplacement + 'px)',
         '-webkit-transform': 'translateX(' + xDisplacement + 'px)'
       };
+      let opacityCss = (xDisplacement > 0
+        ? 1 - xDisplacement / 200
+        : 1
+      ).toFixed(2);
       // Move the element while the drag position is less than xMax
       // -delta/2 is a necessary adjustment
       if (
         xDisplacement >= 0 &&
         xDisplacement <
-          this.containerWidth - (this.origin.width * 15) / 100 + 30 &&
+          this.containerWidth - (this.origin.width * 30) / 100 + 30 &&
         this.isPressed
       ) {
         // Set element styles
-        this.renderer.setElementStyle(
+        this.renderer.setStyle(
           this.htmlButtonElem,
           'transform',
           posCss['transform']
         );
-        this.renderer.setElementStyle(
+        this.renderer.setStyle(
           this.htmlButtonElem,
           '-webkit-transform',
           posCss['-webkit-transform']
         );
+        this.renderer.setStyle(this.htmlTextElem, 'opacity', opacityCss);
+        this.renderer.setStyle(this.htmlArrowElem, 'opacity', opacityCss);
       }
 
       // If the max displacement position is reached
@@ -134,16 +165,18 @@ export class SlideToAcceptPage implements AfterViewInit {
         transform: 'translateX(0px)',
         '-webkit-transform': 'translateX(0px)'
       };
-      this.renderer.setElementStyle(
+      this.renderer.setStyle(
         this.htmlButtonElem,
         'transform',
         posCss['transform']
       );
-      this.renderer.setElementStyle(
+      this.renderer.setStyle(
         this.htmlButtonElem,
         '-webkit-transform',
         posCss['-webkit-transform']
       );
+      this.renderer.setStyle(this.htmlTextElem, 'opacity', '1');
+      this.renderer.setStyle(this.htmlArrowElem, 'opacity', '1');
       this.ngAfterViewInit();
     } else if (this.slideButtonDone && !this.isDisabled) {
       this.isConfirm = true;

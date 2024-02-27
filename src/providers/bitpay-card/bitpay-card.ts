@@ -11,6 +11,7 @@ import { PersistenceProvider } from '../persistence/persistence';
 
 import * as _ from 'lodash';
 import * as moment from 'moment';
+import { AnalyticsProvider } from '../analytics/analytics';
 
 @Injectable()
 export class BitPayCardProvider {
@@ -21,9 +22,14 @@ export class BitPayCardProvider {
     private onGoingProcessProvider: OnGoingProcessProvider,
     private persistenceProvider: PersistenceProvider,
     private configProvider: ConfigProvider,
-    private homeIntegrationsProvider: HomeIntegrationsProvider
+    private homeIntegrationsProvider: HomeIntegrationsProvider,
+    private analyticsProvider: AnalyticsProvider
   ) {
     this.logger.debug('BitPayCardProvider initialized');
+  }
+
+  logDebitCardLinked() {
+    this.analyticsProvider.setUserProperty('hasLinkedDebitCard', 'true');
   }
 
   private isActive(cb): void {
@@ -102,6 +108,10 @@ export class BitPayCardProvider {
     });
   }
 
+  logEvent(eventName: string, eventParams: { [key: string]: any }) {
+    this.analyticsProvider.logEvent(eventName, eventParams);
+  }
+
   public _processTransactions(invoices, history) {
     var balance = history.endingBalance || history.currentCardBalance;
     var runningBalance = parseFloat(balance);
@@ -139,7 +149,8 @@ export class BitPayCardProvider {
           if (
             ['paid', 'confirmed', 'complete'].indexOf(invoices[i].status) >=
               0 ||
-            (invoices[i].status === 'invalid' || isInvoiceUnderpaid)
+            invoices[i].status === 'invalid' ||
+            isInvoiceUnderpaid
           ) {
             activityList.unshift(
               this._getMerchantInfo({
@@ -242,6 +253,7 @@ export class BitPayCardProvider {
             cards
           )
           .then(() => {
+            this.logDebitCardLinked();
             this.onGoingProcessProvider.clear();
             return cb(null, cards);
           });
@@ -282,7 +294,7 @@ export class BitPayCardProvider {
         if (err) return cb(err);
 
         this.getCards(data => {
-          var card = _.find(data, {
+          var card: any = _.find(data, {
             id: cardId
           });
 
@@ -311,6 +323,11 @@ export class BitPayCardProvider {
                   history = data.data || {};
                   history['txs'] = this._processTransactions(invoices, history);
 
+                  this.persistenceProvider.setLastKnownHistory(
+                    cardId,
+                    history.txs
+                  );
+
                   this.persistenceProvider.setLastKnownBalance(
                     cardId,
                     history.currentCardBalance
@@ -319,6 +336,13 @@ export class BitPayCardProvider {
                   return cb(data.error, history);
                 },
                 data => {
+                  this.logger.info(
+                    'Error loading BitPay Card transaction history for ',
+                    'card id: ',
+                    cardId,
+                    'Message: ',
+                    data.error
+                  );
                   return cb(
                     this._setError('BitPay Card Error: Get History', data)
                   );
@@ -326,6 +350,13 @@ export class BitPayCardProvider {
               );
             },
             data => {
+              this.logger.info(
+                'Error loading BitPay Card invoice history for ',
+                'card id: ',
+                cardId,
+                'Message: ',
+                data.error
+              );
               return cb(
                 this._setError('BitPay Card Error: Get Invoices', data)
               );
@@ -348,7 +379,7 @@ export class BitPayCardProvider {
         if (err) return cb(err);
 
         this.getCards(data => {
-          var card = _.find(data, {
+          var card: any = _.find(data, {
             id: cardId
           });
 
@@ -363,7 +394,7 @@ export class BitPayCardProvider {
                 return cb(res.error);
               } else {
                 this.logger.info('BitPay TopUp: SUCCESS');
-                return cb(null, res.data.invoice);
+                return cb(null, res.data);
               }
             },
             res => {
@@ -439,37 +470,52 @@ export class BitPayCardProvider {
     );
   }
 
-  public get(opts, cb) {
-    this.getCards(cards => {
-      if (_.isEmpty(cards)) {
-        this.homeIntegrationsProvider.updateLink('debitcard', null); // Name, linked
-        return cb();
-      }
-      this.homeIntegrationsProvider.updateLink('debitcard', true); // Name, linked
-
-      if (opts.cardId) {
-        cards = _.filter(cards, x => {
-          return opts.cardId == x.eid;
-        });
-      }
-
-      // Async, no problem
-      _.each(cards, x => {
-        this.setCurrencySymbol(x);
-        this.persistenceProvider
-          .getLastKnownBalance(x.eid)
-          .then(({ balance = null, updatedOn = null }) => {
-            x.balance = Number(balance);
-            x.updateOn = updatedOn;
-          });
-
-        // async refresh
-        if (!opts.noRefresh) {
-          this.updateHistory(x.id, {}, () => {});
+  public get(opts?): Promise<any> {
+    opts = opts || {};
+    return new Promise(resolve => {
+      this.getCards(cards => {
+        if (_.isEmpty(cards)) {
+          this.homeIntegrationsProvider.updateLink('debitcard', null); // Name, linked
+          return resolve();
         }
-      });
+        this.homeIntegrationsProvider.updateLink('debitcard', true); // Name, linked
 
-      return cb(null, cards);
+        if (opts.cardId) {
+          cards = _.filter(cards, card => {
+            return opts.cardId == card.eid;
+          });
+        }
+
+        const completeBalance = async () => {
+          for (let i = 0; i < cards.length; i++) {
+            this.setCurrencySymbol(cards[i]);
+
+            if (!opts.noBalance) {
+              await this.persistenceProvider
+                .getLastKnownBalance(cards[i].eid)
+                .then(balanceCache => {
+                  cards[i].balance =
+                    balanceCache && balanceCache.balance
+                      ? Number(balanceCache.balance)
+                      : null;
+                  cards[i].updateOn = balanceCache && balanceCache.updatedOn;
+                });
+            }
+
+            // async refresh
+            if (!opts.noHistory) {
+              await this.persistenceProvider
+                .getLastKnownHistory(cards[i].eid)
+                .then(historyCache => {
+                  cards[i].history = historyCache && historyCache.txs;
+                  cards[i].updateOn = historyCache && historyCache.updatedOn;
+                });
+            }
+          }
+          return resolve(cards);
+        };
+        completeBalance();
+      });
     });
   }
 
@@ -481,7 +527,8 @@ export class BitPayCardProvider {
         icon: 'assets/img/bitpay-card/icon-bitpay.svg',
         page: 'BitPayCardIntroPage',
         show: !!this.configProvider.get().showIntegration['debitcard'],
-        linked: !!isActive
+        linked: !!isActive,
+        type: 'card'
       });
     });
   }

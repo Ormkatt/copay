@@ -1,9 +1,17 @@
 page-scan {
-  color: #fff;
-  background: transparent none;
-
+  .bar-button-default-md {
+    color: #d8d8d8 !important;
+  }
+  .scroll-content {
+    margin-top: 0px !important;
+  }
   & > ion-content.content {
     background: transparent none;
+  }
+
+  .not-supported {
+    text-align: center;
+    margin-top: 10rem;
   }
 
   .page-scan-has-problems {
@@ -90,6 +98,7 @@ page-scan {
         max-width: 400px;
         margin-bottom: 8em;
         max-height: 50%;
+        opacity: 70%;
       }
     }
 
@@ -112,7 +121,7 @@ page-scan {
         background-size: 100%;
         display: inline-block;
         margin: 2em 1em;
-        margin-bottom: calc(1em + env(safe-area-inset-bottom));
+        margin-bottom: calc(4em + env(safe-area-inset-bottom));
         cursor: pointer;
 
         // hover for desktop only
@@ -123,6 +132,9 @@ page-scan {
         &:active {
           background-color: rgba(100, 124, 232, 0.79);
         }
+      }
+      .url-btn {
+        margin-bottom: calc(1em + env(safe-area-inset-bottom));
       }
 
       .icon-flash {
@@ -149,22 +161,6 @@ page-scan {
         left: 50% !important;
         /* bring your own prefixes */
         transform: translate(-50%, -50%) !important;
-      }
-    }
-  }
-
-  .hide-div {
-    display: none;
-  }
-
-  .cameras-list {
-    .camera {
-      display: flex;
-      align-items: center;
-      margin-top: 1rem;
-
-      ion-icon {
-        margin-right: 1rem;
       }
     }
   }

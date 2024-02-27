@@ -2,6 +2,7 @@ import { async, ComponentFixture } from '@angular/core/testing';
 
 import { TestUtils } from '../../test';
 
+import { LocationProvider } from '../../providers/location/location';
 import { ProfileProvider } from './../../providers/profile/profile';
 import { WalletDetailsPage } from './wallet-details';
 
@@ -11,6 +12,7 @@ describe('WalletDetailsPage', () => {
 
   beforeEach(async(() => {
     const mockWallet = {
+      coin: 'btc',
       name: 'Test Wallet',
       cachedStatus: null,
       credentials: { m: 1 },
@@ -21,6 +23,9 @@ describe('WalletDetailsPage', () => {
       setNotificationsInterval: () => true
     };
     spyOn(ProfileProvider.prototype, 'getWallet').and.returnValue(mockWallet);
+    spyOn(LocationProvider.prototype, 'getCountry').and.returnValue(
+      Promise.resolve('US')
+    );
     return TestUtils.configurePageTestingModule([WalletDetailsPage]).then(
       testEnv => {
         fixture = testEnv.fixture;
@@ -30,13 +35,15 @@ describe('WalletDetailsPage', () => {
     );
   }));
   afterEach(() => {
+    spyOn(instance, 'ngOnDestroy');
     fixture.destroy();
   });
   describe('Lifecycle Hooks', () => {
     describe('ionViewDidLoad', () => {
       it('should subscribe to events', () => {
         const subscribeSpy = spyOn(instance.events, 'subscribe');
-        instance.ionViewWillLoad();
+        const publishSpy = spyOn(instance.events, 'publish');
+        instance.ionViewDidLoad();
         expect(subscribeSpy).toHaveBeenCalledWith(
           'Local/WalletUpdate',
           instance.updateStatus
@@ -45,13 +52,7 @@ describe('WalletDetailsPage', () => {
           'Local/WalletHistoryUpdate',
           instance.updateHistory
         );
-      });
-    });
-    describe('ionViewDidEnter', () => {
-      it('should publish to wallet focus event', () => {
-        const subscribeSpy = spyOn(instance.events, 'publish');
-        instance.ionViewDidEnter();
-        expect(subscribeSpy).toHaveBeenCalled();
+        expect(publishSpy).toHaveBeenCalled();
       });
     });
   });
@@ -84,6 +85,7 @@ describe('WalletDetailsPage', () => {
     });
     describe('showHistory', () => {
       it('should add the next page of transactions to the list', () => {
+        instance.ionViewDidLoad();
         instance.currentPage = 0;
         instance.wallet.completeHistory = new Array(11).map(() => {});
         const spy = spyOn(instance, 'groupHistory');

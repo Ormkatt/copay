@@ -5,14 +5,16 @@ import {
   transition,
   trigger
 } from '@angular/animations';
-import { Component, ViewChild } from '@angular/core';
+import { Component, ElementRef, ViewChild } from '@angular/core';
 import { SocialSharing } from '@ionic-native/social-sharing';
 import { Events, NavController, NavParams } from 'ionic-angular';
-import { take } from 'rxjs/operators';
+import { Subject } from 'rxjs';
+import { debounceTime, switchMap } from 'rxjs/operators';
 import {
   ActionSheetProvider,
   InfoSheetType
 } from '../../../../providers/action-sheet/action-sheet';
+import { ConfettiProvider } from '../../../../providers/confetti/confetti';
 import { ExternalLinkProvider } from '../../../../providers/external-link/external-link';
 import { GiftCardProvider } from '../../../../providers/gift-card/gift-card';
 import {
@@ -44,17 +46,23 @@ import { PrintableCardComponent } from './printable-card/printable-card';
 export class CardDetailsPage {
   public card: GiftCard;
   public cardConfig: CardConfig;
+  public barcodeData: string;
+  public barcodeFormat: string;
   ClaimCodeType = ClaimCodeType;
+  private updateGiftCardsSubject: Subject<void> = new Subject();
 
   @ViewChild(PrintableCardComponent)
   printableCard: PrintableCardComponent;
 
+  @ViewChild('confetti') confetti: ElementRef;
+
   constructor(
     private actionSheetProvider: ActionSheetProvider,
+    private confettiProvider: ConfettiProvider,
     private externalLinkProvider: ExternalLinkProvider,
     private giftCardProvider: GiftCardProvider,
     private nav: NavController,
-    private navParams: NavParams,
+    public navParams: NavParams,
     private events: Events,
     private socialSharing: SocialSharing,
     private platformProvider: PlatformProvider
@@ -62,33 +70,42 @@ export class CardDetailsPage {
 
   async ngOnInit() {
     this.card = this.navParams.get('card');
+    this.barcodeData = this.card.barcodeData || this.card.claimCode;
+    this.barcodeFormat = getBarcodeFormat(this.card.barcodeFormat);
     this.cardConfig = await this.giftCardProvider.getCardConfig(this.card.name);
-    this.updateGiftCard();
   }
 
   ionViewWillEnter() {
     this.events.subscribe('bwsEvent', this.bwsEventHandler);
+    this.navParams.get('showConfetti') && this.showConfetti();
+    this.updateGiftCardsSubject
+      .pipe(
+        debounceTime(1000),
+        switchMap(() =>
+          this.giftCardProvider.updatePendingGiftCards([this.card])
+        )
+      )
+      .subscribe(card => (this.card = card));
+    this.updateGiftCard();
+  }
+
+  showConfetti() {
+    this.confettiProvider.confetti(this.confetti.nativeElement);
   }
 
   ionViewWillLeave() {
     this.events.unsubscribe('bwsEvent', this.bwsEventHandler);
+    this.updateGiftCardsSubject.unsubscribe();
   }
 
-  private bwsEventHandler: any = (_, type: string) => {
-    if (type == 'NewBlock') {
+  private bwsEventHandler: any = data => {
+    if (data && data.notification_type == 'NewBlock') {
       this.updateGiftCard();
     }
   };
 
   updateGiftCard() {
-    this.giftCardProvider
-      .updatePendingGiftCards(
-        [this.card],
-        this.cardConfig.defaultClaimCodeType === ClaimCodeType.barcode &&
-          !this.card.barcodeImage
-      )
-      .pipe(take(1))
-      .subscribe(card => (this.card = card));
+    this.updateGiftCardsSubject.next();
   }
 
   doRefresh(refresher) {
@@ -133,6 +150,20 @@ export class CardDetailsPage {
     await this.giftCardProvider.unarchiveCard(this.card);
   }
 
+  logRedeemCardEvent(isManuallyClaimed) {
+    if (!isManuallyClaimed) {
+      this.giftCardProvider.logEvent('giftcards_redeem', {
+        brand: this.cardConfig.name,
+        usdAmount: this.card.amount
+      });
+    } else {
+      this.giftCardProvider.logEvent('giftcards_mark_used', {
+        brand: this.cardConfig.name,
+        usdAmount: this.card.amount
+      });
+    }
+  }
+
   hasPin() {
     const legacyCards: string[] = [
       'Amazon.com',
@@ -156,7 +187,13 @@ export class CardDetailsPage {
   ) {
     const sheet = this.actionSheetProvider.createInfoSheet(sheetName);
     sheet.present();
-    sheet.onDidDismiss(confirm => confirm && onDidDismiss(confirm));
+    sheet.onDidDismiss(confirm => {
+      if (confirm) {
+        const isManuallyClaimed = true;
+        this.logRedeemCardEvent(isManuallyClaimed);
+        onDidDismiss(confirm);
+      }
+    });
   }
 
   openExternalLink(url: string): void {
@@ -166,7 +203,7 @@ export class CardDetailsPage {
   redeem() {
     const redeemUrl = `${this.cardConfig.redeemUrl}${this.card.claimCode}`;
     this.cardConfig.redeemUrl
-      ? this.externalLinkProvider.open(redeemUrl)
+      ? this.redeemWithUrl(redeemUrl)
       : this.claimManually();
   }
 
@@ -174,6 +211,12 @@ export class CardDetailsPage {
     this.cardConfig.printRequired
       ? this.print()
       : this.copyCode(this.card.claimCode);
+  }
+
+  redeemWithUrl(redeemUrl: string) {
+    const isManuallyClaimed = false;
+    this.logRedeemCardEvent(isManuallyClaimed);
+    this.externalLinkProvider.open(redeemUrl);
   }
 
   print() {
@@ -193,6 +236,10 @@ export class CardDetailsPage {
 
   showInvoice() {
     this.externalLinkProvider.open(this.card.invoiceUrl);
+  }
+
+  launchSupportForm() {
+    this.externalLinkProvider.open('https://bitpay.com/request-help/wizard');
   }
 
   private shareCode() {
@@ -228,4 +275,39 @@ export class CardDetailsPage {
       }
     });
   }
+  close() {
+    this.nav.pop();
+  }
+}
+
+function getBarcodeFormat(barcodeFormat: string = '') {
+  const lowercaseFormats = ['pharmacode', 'codabar'];
+  const supportedFormats = [
+    'CODE128',
+    'CODE128A',
+    'CODE128B',
+    'CODE128C',
+    'EAN',
+    'UPC',
+    'EAN8',
+    'EAN5',
+    'EAN2',
+    'CODE39',
+    'ITF14',
+    'MSI',
+    'MSI10',
+    'MSI11',
+    'MSI1010',
+    'MSI1110',
+    'QR',
+    ...lowercaseFormats
+  ];
+  const normalizedFormat = lowercaseFormats.includes(
+    barcodeFormat.toLowerCase()
+  )
+    ? barcodeFormat.toLowerCase()
+    : barcodeFormat.replace(/\s/g, '').toUpperCase();
+  return supportedFormats.includes(normalizedFormat)
+    ? normalizedFormat
+    : 'CODE128';
 }

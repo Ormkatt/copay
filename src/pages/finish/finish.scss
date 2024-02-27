@@ -14,11 +14,22 @@ page-finish {
           padding: 3rem;
         }
         &-text {
-          font-size: 2.8rem;
           color: #ffffff;
-          margin: 0 1rem 0 1rem;
+          font-weight: 500;
+          font-size: 25px;
+          align-items: center;
+          text-align: center;
+          line-height: 34px;
+          @media (max-width: 350px) {
+            font-size: 17px;
+            line-height: 20px;
+          }
+          &.bg-none {
+            color: #060606;
+          }
         }
         &-comment {
+          margin: auto;
           padding: 2rem;
           font-size: 1.6rem;
           color: #ffffff;
@@ -40,6 +51,8 @@ page-finish {
     }
     .footer {
       padding: 2rem;
+      padding-bottom: calc(2rem + env(safe-area-inset-bottom));
+      padding-bottom: -webkit-calc(2rem + env(safe-area-inset-bottom));
       margin: 0 1.75rem;
       border-top: 0.1rem solid rgba(255, 255, 255, 0.45);
       position: absolute;
@@ -65,5 +78,8 @@ page-finish {
   }
   .danger {
     background-color: color($colors, danger);
+  }
+  .bg-none {
+    background-color: #ffffff;
   }
 }

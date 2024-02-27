@@ -4,11 +4,27 @@ import { Injectable } from '@angular/core';
 export class DerivationPathHelperProvider {
   public defaultBTC: string;
   public defaultBCH: string;
+  public defaultETH: string;
+  public defaultXRP: string;
+  public defaultDOGE: string;
+  public defaultLTC: string;
   public defaultTestnet: string;
+  public defaultMultisigBTC: string;
+  public defaultMultisigBCH: string;
+  public defaultMultisigDOGE: string;
+  public defaultMultisigLTC: string;
 
   public constructor() {
     this.defaultBTC = "m/44'/0'/0'";
     this.defaultBCH = "m/44'/145'/0'";
+    this.defaultETH = "m/44'/60'/0'";
+    this.defaultXRP = "m/44'/144'/0'";
+    this.defaultDOGE = "m/44'/3'/0'";
+    this.defaultLTC = "m/44'/2'/0'";
+    this.defaultMultisigBTC = "m/48'/0'/0'";
+    this.defaultMultisigBCH = "m/48'/145'/0'";
+    this.defaultMultisigDOGE = "m/48'/3'/0'";
+    this.defaultMultisigLTC = "m/48'/2'/0'";
     this.defaultTestnet = "m/44'/1'/0'";
   }
 
@@ -56,6 +72,18 @@ export class DerivationPathHelperProvider {
       case "145'": // for BCH
         networkName = 'livenet';
         break;
+      case "60'": // for ETH
+        networkName = 'livenet';
+        break;
+      case "144'": // for XRP
+        networkName = 'livenet';
+        break;
+      case "3'": // for DOGE
+        networkName = 'livenet';
+        break;
+      case "2'": // for LTC
+        networkName = 'livenet';
+        break;
     }
     return networkName;
   }
@@ -84,6 +112,18 @@ export class DerivationPathHelperProvider {
         break;
       case 'bch':
         isValid = ["145'", "0'", "1'"].indexOf(coinCode) > -1;
+        break;
+      case 'eth':
+        isValid = ["60'", "0'", "1'"].indexOf(coinCode) > -1;
+        break;
+      case 'xrp':
+        isValid = ["144'", "0'", "1'"].indexOf(coinCode) > -1;
+        break;
+      case 'doge':
+        isValid = ["3'", "1'"].indexOf(coinCode) > -1;
+        break;
+      case 'ltc':
+        isValid = ["2'", "1'"].indexOf(coinCode) > -1;
         break;
     }
 

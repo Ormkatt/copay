@@ -24,6 +24,9 @@ describe('ClipboardProvider', () => {
     isCordova: boolean;
     isElectron: boolean;
     constructor() {}
+    getOS() {
+      return { OSName: 'Clipboard Unit Test' };
+    }
   }
 
   function init() {
@@ -55,6 +58,41 @@ describe('ClipboardProvider', () => {
           .catch(err => {
             expect(err).toBeUndefined();
           });
+      });
+    });
+
+    describe('getValidData', () => {
+      it('should return copied value (1/2)', () => {
+        const data = {
+          coin: 'btc',
+          data: 'mq8Hc2XwYqXw4sPTc8i7wPx9iJzTFTBWbQ'
+        };
+        spyOn(clipboard, 'paste').and.returnValue(Promise.resolve(data.data));
+
+        clipboardProvider.getValidData(data.coin).then(res => {
+          expect(res).toEqual(data.data);
+        });
+      });
+
+      it('should return copied value (2/2)', () => {
+        const data = {
+          coin: 'btc',
+          data: 'bitcoin:mq8Hc2XwYqXw4sPTc8i7wPx9iJzTFTBWbQ?amount=0.0001'
+        };
+        spyOn(clipboard, 'paste').and.returnValue(Promise.resolve(data.data));
+
+        clipboardProvider.getValidData(data.coin).then(res => {
+          expect(res).toEqual(data.data);
+        });
+      });
+
+      it('should return empty if coin is not defined', () => {
+        const address = 'mq8Hc2XwYqXw4sPTc8i7wPx9iJzTFTBWbQ';
+        spyOn(clipboard, 'paste').and.returnValue(Promise.resolve(address));
+
+        spyOn(clipboardProvider, 'getValidData').and.returnValue(
+          Promise.resolve()
+        );
       });
     });
 
@@ -143,6 +181,47 @@ describe('ClipboardProvider', () => {
           .catch(err => {
             expect(err).toBeUndefined();
           });
+      });
+    });
+
+    describe('getValidData', () => {
+      it('should return copied value (1/2)', () => {
+        const data = {
+          coin: 'btc',
+          data: 'mq8Hc2XwYqXw4sPTc8i7wPx9iJzTFTBWbQ'
+        };
+        spyOn(electronProvider, 'readFromClipboard').and.returnValue(
+          Promise.resolve(data.data)
+        );
+
+        clipboardProvider.getValidData(data.coin).then(res => {
+          expect(res).toEqual(data.data);
+        });
+      });
+
+      it('should return copied value (2/2)', () => {
+        const data = {
+          coin: 'btc',
+          data: 'bitcoin:mq8Hc2XwYqXw4sPTc8i7wPx9iJzTFTBWbQ?amount=0.0001'
+        };
+        spyOn(electronProvider, 'readFromClipboard').and.returnValue(
+          Promise.resolve(data.data)
+        );
+
+        clipboardProvider.getValidData(data.coin).then(res => {
+          expect(res).toEqual(data.data);
+        });
+      });
+
+      it('should return empty if coin is not defined', () => {
+        const address = 'mq8Hc2XwYqXw4sPTc8i7wPx9iJzTFTBWbQ';
+        spyOn(electronProvider, 'readFromClipboard').and.returnValue(
+          Promise.resolve(address)
+        );
+
+        spyOn(clipboardProvider, 'getValidData').and.returnValue(
+          Promise.resolve()
+        );
       });
     });
 

@@ -1,59 +1,113 @@
 import { Component, ViewChild } from '@angular/core';
 import { TranslateService } from '@ngx-translate/core';
-import { Events, NavController, NavParams } from 'ionic-angular';
+import { Events, NavController, NavParams, Platform } from 'ionic-angular';
 import * as _ from 'lodash';
+import { Subscription } from 'rxjs';
 import { Observable } from 'rxjs/Observable';
 
 // Providers
 import { ActionSheetProvider } from '../../providers/action-sheet/action-sheet';
 import { AddressProvider } from '../../providers/address/address';
+import { AnalyticsProvider } from '../../providers/analytics/analytics';
 import { AppProvider } from '../../providers/app/app';
-import { ExternalLinkProvider } from '../../providers/external-link/external-link';
+import { BwcErrorProvider } from '../../providers/bwc-error/bwc-error';
+import { ClipboardProvider } from '../../providers/clipboard/clipboard';
+import { CurrencyProvider } from '../../providers/currency/currency';
+import { ErrorsProvider } from '../../providers/errors/errors';
 import { IncomingDataProvider } from '../../providers/incoming-data/incoming-data';
 import { Logger } from '../../providers/logger/logger';
-import { ProfileProvider } from '../../providers/profile/profile';
-import { Coin } from '../../providers/wallet/wallet';
-import { WalletTabsProvider } from '../wallet-tabs/wallet-tabs.provider';
+import { OnGoingProcessProvider } from '../../providers/on-going-process/on-going-process';
+import { PayproProvider } from '../../providers/paypro/paypro';
+import { PlatformProvider } from '../../providers/platform/platform';
 
 // Pages
-import { WalletTabsChild } from '../wallet-tabs/wallet-tabs-child';
+import { CopayersPage } from '../add/copayers/copayers';
+import { ImportWalletPage } from '../add/import-wallet/import-wallet';
+import { JoinWalletPage } from '../add/join-wallet/join-wallet';
+import { BitPayCardIntroPage } from '../integrations/bitpay-card/bitpay-card-intro/bitpay-card-intro';
+import { CoinbasePage } from '../integrations/coinbase/coinbase';
+import { SelectInvoicePage } from '../integrations/invoice/select-invoice/select-invoice';
+import { SimplexPage } from '../integrations/simplex/simplex';
+import { PaperWalletPage } from '../paper-wallet/paper-wallet';
+import { ScanPage } from '../scan/scan';
+import { AmountPage } from '../send/amount/amount';
+import { ConfirmPage } from '../send/confirm/confirm';
+import { SelectInputsPage } from '../send/select-inputs/select-inputs';
+import { AddressbookAddPage } from '../settings/addressbook/add/add';
+import { WalletDetailsPage } from '../wallet-details/wallet-details';
 import { MultiSendPage } from './multi-send/multi-send';
 
 @Component({
   selector: 'page-send',
   templateUrl: 'send.html'
 })
-export class SendPage extends WalletTabsChild {
+export class SendPage {
+  public wallet: any;
   public search: string = '';
-  public walletsBtc;
-  public walletsBch;
-  public hasBtcWallets: boolean;
-  public hasBchWallets: boolean;
+  public isCordova: boolean;
   public invalidAddress: boolean;
-
-  private scannerOpened: boolean;
+  public validDataFromClipboard;
+  private onResumeSubscription: Subscription;
   private validDataTypeMap: string[] = [
     'BitcoinAddress',
     'BitcoinCashAddress',
+    'EthereumAddress',
+    'EthereumUri',
+    'RippleAddress',
+    'DogecoinAddress',
+    'LitecoinAddress',
+    'RippleUri',
     'BitcoinUri',
-    'BitcoinCashUri'
+    'BitcoinCashUri',
+    'DogecoinUri',
+    'LitecoinUri',
+    'BitPayUri'
   ];
+  private pageMap = {
+    AddressbookAddPage,
+    AmountPage,
+    BitPayCardIntroPage,
+    CoinbasePage,
+    ConfirmPage,
+    CopayersPage,
+    ImportWalletPage,
+    JoinWalletPage,
+    PaperWalletPage,
+    SimplexPage,
+    SelectInvoicePage,
+    WalletDetailsPage
+  };
 
   constructor(
-    navCtrl: NavController,
+    private currencyProvider: CurrencyProvider,
+    private navCtrl: NavController,
     private navParams: NavParams,
-    profileProvider: ProfileProvider,
+    private payproProvider: PayproProvider,
     private logger: Logger,
     private incomingDataProvider: IncomingDataProvider,
     private addressProvider: AddressProvider,
     private events: Events,
-    walletTabsProvider: WalletTabsProvider,
     private actionSheetProvider: ActionSheetProvider,
-    private externalLinkProvider: ExternalLinkProvider,
+    private analyticsProvider: AnalyticsProvider,
     private appProvider: AppProvider,
-    private translate: TranslateService
+    private translate: TranslateService,
+    private errorsProvider: ErrorsProvider,
+    private onGoingProcessProvider: OnGoingProcessProvider,
+    private bwcErrorProvider: BwcErrorProvider,
+    private plt: Platform,
+    private clipboardProvider: ClipboardProvider,
+    private platformProvider: PlatformProvider
   ) {
-    super(navCtrl, profileProvider, walletTabsProvider);
+    this.wallet = this.navParams.data.wallet;
+    this.isCordova = this.platformProvider.isCordova;
+    this.events.subscribe('Local/AddressScan', this.updateAddressHandler);
+    this.events.subscribe('SendPageRedir', this.SendPageRedirEventHandler);
+    this.events.subscribe('Desktop/onFocus', () => {
+      this.setDataFromClipboard();
+    });
+    this.onResumeSubscription = this.plt.resume.subscribe(() => {
+      this.setDataFromClipboard();
+    });
   }
 
   @ViewChild('transferTo')
@@ -63,18 +117,35 @@ export class SendPage extends WalletTabsChild {
     this.logger.info('Loaded: SendPage');
   }
 
-  ionViewWillEnter() {
-    this.events.subscribe('Local/AddressScan', this.updateAddressHandler);
-
-    this.walletsBtc = this.profileProvider.getWallets({ coin: 'btc' });
-    this.walletsBch = this.profileProvider.getWallets({ coin: 'bch' });
-    this.hasBtcWallets = !_.isEmpty(this.walletsBtc);
-    this.hasBchWallets = !_.isEmpty(this.walletsBch);
+  ionViewDidEnter() {
+    this.setDataFromClipboard();
   }
 
-  ionViewWillLeave() {
+  ngOnDestroy() {
     this.events.unsubscribe('Local/AddressScan', this.updateAddressHandler);
+    this.events.unsubscribe('SendPageRedir', this.SendPageRedirEventHandler);
+    this.events.unsubscribe('Desktop/onFocus');
+    this.onResumeSubscription.unsubscribe();
   }
+
+  private async setDataFromClipboard() {
+    this.validDataFromClipboard = await this.clipboardProvider.getValidData(
+      this.wallet.coin
+    );
+  }
+
+  private SendPageRedirEventHandler: any = nextView => {
+    const currentIndex = this.navCtrl.getActive().index;
+    const currentView = this.navCtrl.getViews();
+    nextView.params.fromWalletDetails = true;
+    nextView.params.walletId = this.wallet.credentials.walletId;
+    this.navCtrl
+      .push(this.pageMap[nextView.name], nextView.params, { animate: false })
+      .then(() => {
+        if (currentView[currentIndex].name == 'ScanPage')
+          this.navCtrl.remove(currentIndex);
+      });
+  };
 
   private updateAddressHandler: any = data => {
     this.search = data.value;
@@ -89,41 +160,33 @@ export class SendPage extends WalletTabsChild {
     );
   }
 
-  public async goToReceive() {
-    await this.walletTabsProvider.goToTabIndex(0);
-    const coinName = this.wallet.coin === Coin.BTC ? 'bitcoin' : 'bitcoin cash';
-    const infoSheet = this.actionSheetProvider.createInfoSheet(
-      'receiving-bitcoin',
-      { coinName }
-    );
-    await Observable.timer(250).toPromise();
-    infoSheet.present();
+  public openScanner(): void {
+    this.navCtrl.push(ScanPage, { fromSend: true }, { animate: false });
   }
 
-  public openScanner(): void {
-    this.scannerOpened = true;
-    this.walletTabsProvider.setSendParams({
-      amount: this.navParams.data.amount,
-      coin: this.navParams.data.coin
-    });
-    this.walletTabsProvider.setFromPage({ fromSend: true });
-    this.events.publish('ScanFromWallet');
+  public showOptions(coin: string) {
+    return (
+      (this.currencyProvider.isMultiSend(coin) ||
+        this.currencyProvider.isUtxoCoin(coin)) &&
+      !this.shouldShowZeroState()
+    );
   }
 
   private checkCoinAndNetwork(data, isPayPro?): boolean {
-    let isValid;
+    let isValid, addrData;
     if (isPayPro) {
-      isValid = this.addressProvider.checkCoinAndNetworkFromPayPro(
-        this.wallet.coin,
-        this.wallet.network,
-        data
-      );
+      isValid =
+        data &&
+        data.chain == this.currencyProvider.getChain(this.wallet.coin) &&
+        data.network == this.wallet.network;
     } else {
-      isValid = this.addressProvider.checkCoinAndNetworkFromAddr(
-        this.wallet.coin,
-        this.wallet.network,
-        data
+      addrData = this.addressProvider.getCoinAndNetwork(
+        data,
+        this.wallet.network
       );
+      isValid =
+        this.currencyProvider.getChain(this.wallet.coin).toLowerCase() ==
+          addrData.coin && addrData.network == this.wallet.network;
     }
 
     if (isValid) {
@@ -131,9 +194,8 @@ export class SendPage extends WalletTabsChild {
       return true;
     } else {
       this.invalidAddress = true;
-      let network = isPayPro
-        ? data.network
-        : this.addressProvider.getNetwork(data);
+      let network = isPayPro ? data.network : addrData.network;
+
       if (this.wallet.coin === 'bch' && this.wallet.network === network) {
         const isLegacy = this.checkIfLegacy();
         isLegacy ? this.showLegacyAddrMessage() : this.showErrorMessage();
@@ -147,8 +209,9 @@ export class SendPage extends WalletTabsChild {
 
   private redir() {
     this.incomingDataProvider.redir(this.search, {
+      activePage: 'SendPage',
       amount: this.navParams.data.amount,
-      coin: this.navParams.data.coin
+      coin: this.navParams.data.coin // TODO ???? what is this for ?
     });
     this.search = '';
   }
@@ -158,12 +221,7 @@ export class SendPage extends WalletTabsChild {
       'The wallet you are using does not match the network and/or the currency of the address provided'
     );
     const title = this.translate.instant('Error');
-    const infoSheet = this.actionSheetProvider.createInfoSheet(
-      'default-error',
-      { msg, title }
-    );
-    infoSheet.present();
-    infoSheet.onDidDismiss(() => {
+    this.errorsProvider.showDefaultError(msg, title, () => {
       this.search = '';
     });
   }
@@ -177,11 +235,13 @@ export class SendPage extends WalletTabsChild {
     infoSheet.present();
     infoSheet.onDidDismiss(option => {
       if (option) {
-        let url =
-          'https://bitpay.github.io/address-translator?addr=' + this.search;
-        this.externalLinkProvider.open(url);
+        const legacyAddr = this.search;
+        const cashAddr = this.addressProvider.translateToCashAddress(
+          legacyAddr
+        );
+        this.search = cashAddr;
+        this.processInput();
       }
-      this.search = '';
     });
   }
 
@@ -195,20 +255,46 @@ export class SendPage extends WalletTabsChild {
     const hasContacts = await this.checkIfContact();
     if (!hasContacts) {
       const parsedData = this.incomingDataProvider.parseData(this.search);
-      if (parsedData && parsedData.type == 'PayPro') {
-        const coin: string =
-          this.search.indexOf('bitcoincash') === 0 ? Coin.BCH : Coin.BTC;
-        this.incomingDataProvider
-          .getPayProDetails(this.search)
-          .then(payProDetails => {
-            payProDetails.coin = coin;
-            const isValid = this.checkCoinAndNetwork(payProDetails, true);
-            if (isValid) this.redir();
-          })
-          .catch(err => {
-            this.invalidAddress = true;
-            this.logger.warn(err);
-          });
+      if (
+        (parsedData && parsedData.type == 'PayPro') ||
+        (parsedData && parsedData.type == 'InvoiceUri')
+      ) {
+        try {
+          const invoiceUrl = this.incomingDataProvider.getPayProUrl(
+            this.search
+          );
+          const payproOptions = await this.payproProvider.getPayProOptions(
+            invoiceUrl
+          );
+          const selected = payproOptions.paymentOptions.find(
+            option =>
+              option.selected &&
+              this.wallet.coin.toUpperCase() === option.currency
+          );
+          if (selected) {
+            const activePage = 'SendPage';
+            const isValid = this.checkCoinAndNetwork(selected, true);
+            if (isValid) {
+              this.incomingDataProvider.goToPayPro(
+                payproOptions.payProUrl,
+                this.wallet.coin,
+                undefined,
+                true,
+                activePage
+              );
+            }
+          } else {
+            this.redir();
+          }
+        } catch (err) {
+          this.onGoingProcessProvider.clear();
+          this.invalidAddress = true;
+          this.logger.warn(this.bwcErrorProvider.msg(err));
+          this.errorsProvider.showDefaultError(
+            this.bwcErrorProvider.msg(err),
+            this.translate.instant('Error')
+          );
+        }
       } else if (
         parsedData &&
         _.indexOf(this.validDataTypeMap, parsedData.type) != -1
@@ -216,8 +302,14 @@ export class SendPage extends WalletTabsChild {
         const isValid = this.checkCoinAndNetwork(this.search);
         if (isValid) this.redir();
       } else if (parsedData && parsedData.type == 'BitPayCard') {
-        this.close();
-        this.incomingDataProvider.redir(this.search);
+        // this.close();
+        this.incomingDataProvider.redir(this.search, {
+          activePage: 'SendPage'
+        });
+      } else if (parsedData && parsedData.type == 'PrivateKey') {
+        this.incomingDataProvider.redir(this.search, {
+          activePage: 'SendPage'
+        });
       } else {
         this.invalidAddress = true;
       }
@@ -240,13 +332,44 @@ export class SendPage extends WalletTabsChild {
     );
   }
 
-  public goToMultiSendPage(): void {
-    this.navCtrl.push(MultiSendPage);
+  public showMoreOptions(): void {
+    const optionsSheet = this.actionSheetProvider.createOptionsSheet(
+      'send-options',
+      {
+        isUtxoCoin: this.currencyProvider.isUtxoCoin(this.wallet.coin),
+        isMultiSend: this.currencyProvider.isMultiSend(this.wallet.coin)
+      }
+    );
+    optionsSheet.present();
+
+    optionsSheet.onDidDismiss(option => {
+      if (option == 'multi-send')
+        this.navCtrl
+          .push(MultiSendPage, {
+            wallet: this.wallet
+          })
+          .then(() => {
+            this.analyticsProvider.logEvent('multi_send_clicked', {
+              coin: this.wallet.coin
+            });
+          });
+      if (option == 'select-inputs')
+        this.navCtrl
+          .push(SelectInputsPage, {
+            wallet: this.wallet
+          })
+          .then(() => {
+            this.analyticsProvider.logEvent('select_inputs_clicked', {
+              coin: this.wallet.coin
+            });
+          });
+    });
   }
 
-  public closeCam(): void {
-    if (this.scannerOpened) this.events.publish('ExitScan');
-    else this.getParentTabs().dismiss();
-    this.scannerOpened = false;
+  public pasteFromClipboard() {
+    this.search = this.validDataFromClipboard || '';
+    this.validDataFromClipboard = null;
+    this.clipboardProvider.clear();
+    this.processInput();
   }
 }

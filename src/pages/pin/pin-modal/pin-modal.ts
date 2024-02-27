@@ -1,5 +1,4 @@
 import { Component, ViewChild } from '@angular/core';
-import { StatusBar } from '@ionic-native/status-bar';
 import { Vibration } from '@ionic-native/vibration';
 import { NavParams, Platform, ViewController } from 'ionic-angular';
 
@@ -32,6 +31,7 @@ export class PinModalPage {
   public expires: string;
   public incorrect: boolean;
   public unregister;
+  public isCordova: boolean;
 
   @ViewChild(Animate)
   pinCode: Animate;
@@ -42,7 +42,6 @@ export class PinModalPage {
     private platform: Platform,
     private navParams: NavParams,
     private persistenceProvider: PersistenceProvider,
-    private statusBar: StatusBar,
     private vibration: Vibration,
     private viewCtrl: ViewController,
     private platformProvider: PlatformProvider
@@ -61,6 +60,7 @@ export class PinModalPage {
     this.unregister = this.platform.registerBackButtonAction(() => {});
 
     this.action = this.navParams.get('action');
+    this.isCordova = this.platformProvider.isCordova;
 
     if (this.action === 'checkPin' || this.action === 'lockSetUp') {
       this.checkIfLocked();
@@ -68,18 +68,6 @@ export class PinModalPage {
   }
 
   ionViewWillEnter() {
-    if (this.platformProvider.isIOS) {
-      this.statusBar.styleDefault();
-    }
-  }
-
-  ionViewWillLeave() {
-    if (this.platformProvider.isIOS) {
-      this.statusBar.styleLightContent();
-    }
-  }
-
-  ionViewDidLoad() {
     this.onPauseSubscription = this.platform.pause.subscribe(() => {
       this.lockReleaseTimeout.unref();
       this.countDown.unref();
@@ -93,7 +81,7 @@ export class PinModalPage {
     });
   }
 
-  ngOnDestroy() {
+  ionViewWillLeave() {
     this.onPauseSubscription.unsubscribe();
     this.onResumeSubscription.unsubscribe();
   }
@@ -101,7 +89,7 @@ export class PinModalPage {
   private checkIfLocked(): void {
     this.persistenceProvider.getLockStatus().then((isLocked: string) => {
       if (!isLocked) {
-        this.disableButtons = null;
+        this.disableButtons = false;
         return;
       }
 
@@ -171,6 +159,7 @@ export class PinModalPage {
   private showLockTimer(): void {
     this.disableButtons = true;
     if (this.countDown) {
+      this.incorrect = false;
       this.countDown.ref();
       return;
     }
@@ -179,6 +168,13 @@ export class PinModalPage {
     this.countDown = setInterval(() => {
       const now = Math.floor(Date.now() / 1000);
       const totalSecs = bannedUntil - now;
+
+      // totalSecs should never be negative
+      if (totalSecs < 0) {
+        this.resetClock();
+        return;
+      }
+
       const m = Math.floor(totalSecs / 60);
       const s = totalSecs % 60;
       this.expires = ('0' + m).slice(-2) + ':' + ('0' + s).slice(-2);
@@ -191,11 +187,16 @@ export class PinModalPage {
       return;
     }
     this.lockReleaseTimeout = setTimeout(() => {
-      clearInterval(this.countDown);
-      this.expires = this.disableButtons = null;
-      this.currentPin = this.firstPinEntered = '';
-      this.persistenceProvider.removeLockStatus();
+      this.resetClock();
     }, this.ATTEMPT_LOCK_OUT_TIME * 1000);
+  }
+
+  private resetClock() {
+    clearInterval(this.countDown);
+    this.expires = this.disableButtons = null;
+    this.currentPin = this.firstPinEntered = '';
+    this.incorrect = false;
+    this.persistenceProvider.removeLockStatus();
   }
 
   public delete(): void {

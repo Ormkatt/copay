@@ -1,7 +1,11 @@
 import { Injectable } from '@angular/core';
 import { QRScanner } from '@ionic-native/qr-scanner';
+import { TranslateService } from '@ngx-translate/core';
 import { Events } from 'ionic-angular';
-import { Logger } from '../../providers/logger/logger';
+
+// Providers
+import { ErrorsProvider } from '../errors/errors';
+import { Logger } from '../logger/logger';
 import { PlatformProvider } from '../platform/platform';
 
 @Injectable()
@@ -10,24 +14,37 @@ export class ScanProvider {
   public scannerVisible: boolean;
   public lightEnabled: boolean;
   public frontCameraEnabled: boolean;
-  public isDesktop = !this.platform.isCordova;
-  public isAvailable: boolean = true;
-  public hasPermission: boolean = false;
-  public isDenied: boolean = false;
-  public isRestricted: boolean = false;
-  public canEnableLight: boolean = false;
-  public canChangeCamera: boolean = false;
-  public canOpenSettings: boolean = false;
-  public backCamera: boolean = true;
-  public initializeStarted: boolean = false;
-  public initializeCompleted: boolean = false;
+  public isDesktop: boolean;
+  public isAvailable: boolean;
+  public hasPermission: boolean;
+  public isDenied: boolean;
+  public isRestricted: boolean;
+  public canEnableLight: boolean;
+  public canChangeCamera: boolean;
+  public canOpenSettings: boolean;
+  public backCamera: boolean;
+  public initializeStarted: boolean;
+  public initializeCompleted: boolean;
 
   constructor(
     private qrScanner: QRScanner,
     private platform: PlatformProvider,
     private logger: Logger,
-    private events: Events
+    private events: Events,
+    private translate: TranslateService,
+    private errorsProvider: ErrorsProvider
   ) {
+    this.isDesktop = !this.platform.isCordova;
+    this.isAvailable = true;
+    this.hasPermission = false;
+    this.isDenied = false;
+    this.isRestricted = false;
+    this.canEnableLight = false;
+    this.canChangeCamera = false;
+    this.canOpenSettings = false;
+    this.backCamera = true;
+    this.initializeStarted = false;
+    this.initializeCompleted = false;
     this.scannerVisible = false;
     this.lightEnabled = false;
     this.frontCameraEnabled = false;
@@ -150,6 +167,13 @@ export class ScanProvider {
         .catch(err => {
           this.isAvailable = false;
           this.logger.error(err);
+          if (err && err.name === 'CAMERA_ACCESS_DENIED') {
+            const msg = this.translate.instant(
+              'Check the app camera permissions under your phone settings'
+            );
+            const title = this.translate.instant('Camera access denied');
+            this.errorsProvider.showDefaultError(msg, title);
+          }
           // does not return `status` if there is an error
           this.qrScanner.getStatus().then(status => {
             this.completeInitialization(status);

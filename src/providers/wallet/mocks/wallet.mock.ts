@@ -9,13 +9,11 @@ export interface StatusMock {
     lockedConfirmedAmount: number;
     availableAmount: number;
     availableConfirmedAmount: number;
-    byAddress: [
-      {
-        address: string;
-        path: string;
-        amount: number;
-      }
-    ];
+    byAddress: Array<{
+      address: string;
+      path: string;
+      amount: number;
+    }>;
   };
   isValid: boolean;
   pendingTxps: PendingTxpMock[];
@@ -121,13 +119,12 @@ export class WalletMock {
     addressType: string;
     scanStatus: string;
     walletId: string;
+    keyId: string;
     walletName: string;
     network?: string;
-    derivationStrategy?: string;
-    mnemonicHasPassphrase?: boolean;
     publicKeyRing?: any[];
-    walletPrivKey?: string;
-    getBaseAddressDerivationPath?: () => {};
+    coin: string;
+    rootPath: string;
   };
   coin: string;
   id: string;
@@ -148,7 +145,10 @@ export class WalletMock {
       addressType: 'P2PKH',
       scanStatus: null,
       walletId: 'walletid1',
-      walletName: 'Test wallet'
+      walletName: 'Test wallet',
+      keyId: 'keyId1',
+      coin: 'btc',
+      rootPath: "m/44'/0'/0'"
     };
     this.coin = 'btc';
     this.id = 'walletid1';
@@ -165,7 +165,9 @@ export class WalletMock {
   getStatus(_opts, cb) {
     return cb(null, this.status);
   }
-
+  getRootPath() {
+    return 'path';
+  }
   setNotificationsInterval(_x) {}
 
   getTxNote(_opts, cb) {
@@ -210,18 +212,19 @@ export class WalletMock {
     ];
     return cb(null, txsFromLocal);
   }
-  isPrivKeyEncrypted() {
-    return true;
-  }
   createTxProposal(_txp, cb) {
     const txp: TransactionProposal = {
+      coin: 'btc',
+      chain: 'btc',
       amount: 1000,
+      from: 'address1',
       toAddress: 'address1',
       outputs: [
         {
           toAddress: 'address1',
           amount: 1000,
-          message: 'msg1'
+          message: 'msg1',
+          data: 'data'
         }
       ],
       inputs: null,
@@ -239,9 +242,13 @@ export class WalletMock {
     const txpPublished = _opts.txp;
     return cb(null, txpPublished);
   }
-  signTxProposal(_txp, _pass, cb) {
+  pushSignatures(_txp, _signatures, cb) {
     const signedTxp = _txp;
     return cb(null, signedTxp);
+  }
+  broadcastRawTx(_txp, cb) {
+    const broadcastedTxp = _txp;
+    return cb(null, broadcastedTxp);
   }
   broadcastTxProposal(_txp, cb) {
     const broadcastedTxp = _txp;
@@ -258,9 +265,6 @@ export class WalletMock {
     return cb(null);
   }
   savePreferences(_pref, cb) {
-    return cb(null);
-  }
-  recreateWallet(cb) {
     return cb(null);
   }
   startScan(_opts, cb) {
@@ -300,14 +304,6 @@ export class WalletMock {
     ];
     return cb(null, utxos);
   }
-  encryptPrivateKey(_pass) {}
-  decryptPrivateKey(_pass) {}
-  checkPassword(_pass) {
-    return true;
-  }
-  canSign() {
-    return true;
-  }
   getKeys(_pass) {
     const keysWithMnemonics = {
       mnemonic: 'mom mom mom mom mom mom mom mom mom mom mom mom',
@@ -323,17 +319,6 @@ export class WalletMock {
   }
   getSendMaxInfo(_opts, cb) {
     return cb(null, sendMaxInfoMock);
-  }
-  _doJoinWallet(
-    _walletId,
-    _walletPrivKey,
-    _xPubKey,
-    _requestPubKey,
-    _copayerName,
-    _opts,
-    cb
-  ) {
-    return cb(null);
   }
   createAddress(_opts, cb) {
     const addr = {

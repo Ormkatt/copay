@@ -27,10 +27,10 @@ describe('AboutPage', () => {
       });
       it('should set correct commit hash and version', () => {
         instance.appProvider.info.commitHash = 'testHash';
-        instance.appProvider.info.version = 21;
+        instance.appProvider.info.version = '21.0.0';
         instance.ionViewDidLoad();
         expect(instance.commitHash).toEqual('testHash');
-        expect(instance.version).toEqual(21);
+        expect(instance.version).toEqual('21.0.0');
       });
       it('should set correct title', () => {
         spyOn(instance.replaceParametersProvider, 'replace').and.returnValue(
@@ -43,67 +43,14 @@ describe('AboutPage', () => {
         expect(instance.translate.instant).toHaveBeenCalledWith(
           'About {{appName}}'
         );
-        expect(instance.replaceParametersProvider.replace).toHaveBeenCalledWith(
-          'testVal',
-          { appName: 'testName' }
-        );
+        expect(
+          instance.replaceParametersProvider.replace
+        ).toHaveBeenCalledWith('testVal', { appName: 'testName' });
         expect(instance.title).toEqual('testTitle');
       });
     });
   });
   describe('Methods', () => {
-    describe('#openPrivacyPolicy', () => {
-      it('should open privacy policy with correct params', () => {
-        spyOn(instance.externalLinkProvider, 'open');
-
-        const params = {
-          'Go Back': 'Go Back',
-          Open: 'Open',
-          'View Privacy Policy': 'View Privacy Policy'
-        };
-
-        spyOn(instance.translate, 'instant').and.callFake(myParam => {
-          return params[myParam];
-        });
-
-        instance.openPrivacyPolicy();
-
-        expect(instance.externalLinkProvider.open).toHaveBeenCalledWith(
-          'https://bitpay.com/about/privacy',
-          true,
-          null,
-          'View Privacy Policy',
-          'Open',
-          'Go Back'
-        );
-      });
-    });
-    describe('#openTermsOfUse', () => {
-      it('should open terms of use with correct params', () => {
-        spyOn(instance.externalLinkProvider, 'open');
-
-        const params = {
-          'Go Back': 'Go Back',
-          Open: 'Open',
-          'View Wallet Terms of Use': 'View Wallet Terms of Use'
-        };
-
-        spyOn(instance.translate, 'instant').and.callFake(myParam => {
-          return params[myParam];
-        });
-
-        instance.openTermsOfUse();
-
-        expect(instance.externalLinkProvider.open).toHaveBeenCalledWith(
-          'https://bitpay.com/about/terms#wallet',
-          true,
-          null,
-          'View Wallet Terms of Use',
-          'Open',
-          'Go Back'
-        );
-      });
-    });
     describe('#openExternalLink', () => {
       it('open github repo with correct params', () => {
         spyOn(instance.externalLinkProvider, 'open');

@@ -1,6 +1,6 @@
 import { Component } from '@angular/core';
 import { TranslateService } from '@ngx-translate/core';
-import { NavController } from 'ionic-angular';
+import { Events, NavController } from 'ionic-angular';
 
 // pages
 import { SendFeedbackPage } from '../../feedback/send-feedback/send-feedback';
@@ -14,6 +14,7 @@ import {
   PersistenceProvider,
   ReplaceParametersProvider
 } from '../../../providers';
+
 @Component({
   selector: 'page-about',
   templateUrl: 'about.html'
@@ -22,8 +23,10 @@ export class AboutPage {
   public version: string;
   public commitHash: string;
   public title: string;
-  public versionItemTapped: number;
-
+  private tapped = 0;
+  private releaseInfoTaps = 0;
+  private easterEggStatus;
+  public pressed: number = 0;
   constructor(
     private navCtrl: NavController,
     private appProvider: AppProvider,
@@ -31,19 +34,20 @@ export class AboutPage {
     private externalLinkProvider: ExternalLinkProvider,
     private replaceParametersProvider: ReplaceParametersProvider,
     private translate: TranslateService,
-    private persistenceProvider: PersistenceProvider
-  ) {
-    this.versionItemTapped = 0;
-  }
+    private persistenceProvider: PersistenceProvider,
+    private events: Events
+  ) {}
 
-  ionViewDidLoad() {
+  async ionViewDidLoad() {
     this.logger.info('Loaded: AboutPage');
     this.commitHash = this.appProvider.info.commitHash;
     this.version = this.appProvider.info.version;
+    this.releaseInfoTaps = 0;
     this.title = this.replaceParametersProvider.replace(
       this.translate.instant('About {{appName}}'),
       { appName: this.appProvider.info.nameCase }
     );
+    this.easterEggStatus = await this.persistenceProvider.getTestingAdvertisments();
   }
 
   public openExternalLink(): void {
@@ -70,38 +74,19 @@ export class AboutPage {
     );
   }
 
-  public openTermsOfUse() {
-    const url = 'https://bitpay.com/about/terms#wallet';
-    const optIn = true;
-    const title = null;
-    const message = this.translate.instant('View Wallet Terms of Use');
-    const okText = this.translate.instant('Open');
-    const cancelText = this.translate.instant('Go Back');
-    this.externalLinkProvider.open(
-      url,
-      optIn,
-      title,
-      message,
-      okText,
-      cancelText
-    );
-  }
-
-  public openPrivacyPolicy() {
-    const url = 'https://bitpay.com/about/privacy';
-    const optIn = true;
-    const title = null;
-    const message = this.translate.instant('View Privacy Policy');
-    const okText = this.translate.instant('Open');
-    const cancelText = this.translate.instant('Go Back');
-    this.externalLinkProvider.open(
-      url,
-      optIn,
-      title,
-      message,
-      okText,
-      cancelText
-    );
+  public async countReleaseHeaderTaps() {
+    this.releaseInfoTaps++;
+    if (this.releaseInfoTaps !== 12) return;
+    this.releaseInfoTaps = 0;
+    if (this.easterEggStatus === 'enabled') {
+      this.easterEggStatus = undefined;
+      this.persistenceProvider.removeTestingAdvertisments();
+      this.events.publish('Local/TestAdsToggle', false);
+    } else {
+      this.easterEggStatus = 'enabled';
+      this.persistenceProvider.setTestingAdvertisements('enabled');
+      this.events.publish('Local/TestAdsToggle', true);
+    }
   }
 
   public openSessionLog(): void {
@@ -112,15 +97,19 @@ export class AboutPage {
     this.navCtrl.push(SendFeedbackPage);
   }
 
-  public itemTapped() {
-    this.versionItemTapped++;
-    if (this.versionItemTapped >= 5) {
-      this.versionItemTapped = 0;
-      this.persistenceProvider.getPriceChartFlag().then(res => {
-        res === 'enabled'
-          ? this.persistenceProvider.removePriceChartFlag()
-          : this.persistenceProvider.setPriceChartFlag('enabled');
-      });
+  // adding this for testing purposes
+  public async wipeBitPayAccounts() {
+    this.tapped++;
+    if (this.tapped >= 10) {
+      this.tapped = 0;
+      localStorage.removeItem('walletconnect');
+      alert('[DEV] - wc - cleared local storage');
+      const wcSession = await this.persistenceProvider.getWalletConnect();
+      this.logger.log(wcSession);
+      if (wcSession) {
+        await this.persistenceProvider.removeWalletConnect();
+        alert('[DEV] - wc - cleared session');
+      }
     }
   }
 }

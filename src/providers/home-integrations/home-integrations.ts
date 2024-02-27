@@ -4,7 +4,10 @@ import { Logger } from '../../providers/logger/logger';
 
 import * as _ from 'lodash';
 
-const exchangeList: object[] = [{ name: 'coinbase' }, { name: 'shapeshift' }];
+const exchangeList: object[] = [
+  { name: 'coinbase' },
+  { name: 'newWalletConnect' }
+];
 
 @Injectable()
 export class HomeIntegrationsProvider {
@@ -43,12 +46,19 @@ export class HomeIntegrationsProvider {
 
   public shouldShowInHome(serviceName: string) {
     const service = this.services.find(i => i.name === serviceName);
-    if (service && service.name === 'debitcard')
+    if (service && service.name === 'debitcard') {
       return service && service.show && !service.linked;
-    else return service && service.show;
+    } else return service && service.show;
   }
 
-  public get() {
+  public get(): Array<{
+    name: string;
+    show: boolean;
+    linked: boolean;
+    oldLinked?: boolean;
+    email?: string;
+    type: string;
+  }> {
     return _.orderBy(this.services, ['name'], ['asc']);
   }
 
